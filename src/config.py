@@ -1,7 +1,7 @@
 """
 AI 午餐推薦系統 - 核心配置
 """
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from typing import Optional
 import os
 from dotenv import load_dotenv
@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     google_maps_api_key: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
-    openweather_api_key: str = os.getenv("OPENWEATHER_API_KEY", "")
+    cwb_api_key: str = os.getenv("CWB_API_KEY", "")  # 中央氣象署 API Key
     
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./ai_lunch_mind.db")
