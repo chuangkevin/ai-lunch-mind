@@ -54,10 +54,20 @@ async def get_recommendations(query: UserQuery):
         # 1. 解析使用者查詢
         parsed_preferences = await conversation_service.parse_user_query(query.text)
         
+        # 如果對話解析失敗，使用默認偏好
+        if not parsed_preferences:
+            from src.models import UserPreferences, PriceLevel, CrowdLevel
+            parsed_preferences = UserPreferences(
+                budget_range=[PriceLevel.MODERATE],
+                cuisine_types=["中式", "日式", "韓式"],
+                crowd_preference=CrowdLevel.MODERATE,
+                weather_sensitive=True,
+                distance_tolerance=500,
+                dietary_restrictions=[]
+            )
+        
         # 2. 取得天氣資訊
         weather = await weather_service.get_current_weather(query.location)
-        if not weather:
-            raise HTTPException(status_code=500, detail="無法取得天氣資訊")
         
         # 3. 搜尋附近餐廳
         restaurants = await google_maps_service.search_nearby_restaurants(query.location)
@@ -92,7 +102,9 @@ async def get_recommendations(query: UserQuery):
         
     except Exception as e:
         print(f"推薦產生錯誤: {e}")
-        raise HTTPException(status_code=500, detail="推薦系統發生錯誤")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"推薦系統發生錯誤: {str(e)}")
 
 @app.get("/restaurants/search")
 async def search_restaurants(lat: float, lng: float, radius: int = 500):
@@ -110,8 +122,6 @@ async def get_weather(lat: float, lng: float):
     try:
         location = UserLocation(latitude=lat, longitude=lng)
         weather = await weather_service.get_current_weather(location)
-        if not weather:
-            raise HTTPException(status_code=500, detail="無法取得天氣資訊")
         return weather
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"天氣資訊取得失敗: {str(e)}")
