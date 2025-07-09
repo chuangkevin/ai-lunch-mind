@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 午餐推薦系統</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        input, textarea, button {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e1e1;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .results {
+            margin-top: 30px;
+            display: none;
+        }
+        
+        .weather-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .restaurant-card {
+            border: 1px solid #e1e1e1;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: box-shadow 0.3s;
+        }
+        
+        .restaurant-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .restaurant-name {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .restaurant-details {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .restaurant-reasons {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍱 AI 午餐推薦</h1>
+            <p>告訴我你想吃什麼，我來幫你找最適合的餐廳！</p>
+        </div>
+        
+        <form id="recommendForm">
+            <div class="form-group">
+                <label for="query">你想吃什麼？</label>
+                <textarea 
+                    id="query" 
+                    placeholder="例如：我想吃便宜的日式料理，不要太擠的地方，預算200元以內..."
+                    required
+                ></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="latitude">緯度 (或點擊取得位置)</label>
+                <input type="number" id="latitude" step="0.000001" placeholder="25.034" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="longitude">經度</label>
+                <input type="number" id="longitude" step="0.000001" placeholder="121.5645" required>
+            </div>
+            
+            <button type="button" onclick="getLocation()">📍 取得我的位置</button>
+            <button type="submit">🔍 尋找推薦餐廳</button>
+        </form>
+        
+        <div id="results" class="results">
+            <div id="loading" class="loading" style="display: none;">
+                正在分析您的需求並搜尋最適合的餐廳...
+            </div>
+            
+            <div id="weather-info" class="weather-info" style="display: none;">
+                <h3>🌤️ 當前天氣</h3>
+                <div id="weather-details"></div>
+            </div>
+            
+            <div id="explanation" style="display: none; margin-bottom: 20px; padding: 15px; background: #f0f7ff; border-radius: 10px;">
+                <h3>💡 推薦說明</h3>
+                <div id="explanation-text"></div>
+            </div>
+            
+            <div id="restaurants"></div>
+            
+            <div id="error" class="error" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    document.getElementById('latitude').value = position.coords.latitude;
+                    document.getElementById('longitude').value = position.coords.longitude;
+                    alert('位置已取得！');
+                }, function(error) {
+                    alert('無法取得位置：' + error.message);
+                });
+            } else {
+                alert('瀏覽器不支援地理位置功能');
+            }
+        }
+
+        document.getElementById('recommendForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const query = document.getElementById('query').value;
+            const latitude = parseFloat(document.getElementById('latitude').value);
+            const longitude = parseFloat(document.getElementById('longitude').value);
+            
+            // 顯示載入狀態
+            document.getElementById('results').style.display = 'block';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('weather-info').style.display = 'none';
+            document.getElementById('explanation').style.display = 'none';
+            document.getElementById('restaurants').innerHTML = '';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                const response = await fetch('http://localhost:8000/recommend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: query,
+                        location: {
+                            latitude: latitude,
+                            longitude: longitude
+                        }
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('推薦請求失敗');
+                }
+                
+                const data = await response.json();
+                
+                // 隱藏載入狀態
+                document.getElementById('loading').style.display = 'none';
+                
+                // 顯示天氣資訊
+                const weatherInfo = document.getElementById('weather-info');
+                const weatherDetails = document.getElementById('weather-details');
+                weatherDetails.innerHTML = `
+                    <p>🌡️ 溫度: ${data.weather_info.temperature}°C</p>
+                    <p>💧 濕度: ${data.weather_info.humidity}%</p>
+                    <p>☁️ 天氣: ${data.weather_info.description}</p>
+                `;
+                weatherInfo.style.display = 'block';
+                
+                // 顯示推薦說明
+                const explanation = document.getElementById('explanation');
+                const explanationText = document.getElementById('explanation-text');
+                explanationText.innerHTML = data.explanation;
+                explanation.style.display = 'block';
+                
+                // 顯示餐廳推薦
+                const restaurantsDiv = document.getElementById('restaurants');
+                data.recommendations.forEach((rec, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'restaurant-card';
+                    
+                    const reasons = rec.reasons.join(', ');
+                    
+                    card.innerHTML = `
+                        <div class="restaurant-name">${index + 1}. ${rec.restaurant.name}</div>
+                        <div class="restaurant-details">
+                            📍 ${rec.restaurant.address}<br>
+                            ⭐ 評分: ${rec.restaurant.rating || 'N/A'} | 
+                            📏 距離: ${Math.round(rec.distance)}公尺 | 
+                            🔥 流汗指數: ${rec.sweat_index.score.toFixed(1)}/10
+                        </div>
+                        <div class="restaurant-reasons">
+                            <strong>推薦原因:</strong> ${reasons}
+                        </div>
+                    `;
+                    
+                    restaurantsDiv.appendChild(card);
+                });
+                
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = '發生錯誤：' + error.message + ' (請確認後端服務已啟動)';
+            }
+        });
+    </script>
+</body>
+</html>
