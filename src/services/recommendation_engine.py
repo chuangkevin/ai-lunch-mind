@@ -162,21 +162,27 @@ class RecommendationEngine:
             reasons.append("天氣條件很適合")
         
         # 4. 價格匹配度
-        budget_pref = user_preferences.get("budget")
+        budget_pref = user_preferences.get("budget") if isinstance(user_preferences, dict) else getattr(user_preferences, 'budget_range', None)
         if budget_pref and restaurant.price_level:
-            price_score = 1.0 if budget_pref == restaurant.price_level.value else 0.5
+            if isinstance(budget_pref, list):
+                # 如果是 PriceLevel 列表
+                price_score = 1.0 if any(pl.value == restaurant.price_level for pl in budget_pref) else 0.5
+            else:
+                # 如果是字串
+                price_score = 1.0 if budget_pref == restaurant.price_level else 0.5
             score += self.weights["price_match"] * price_score
             if price_score == 1.0:
                 reasons.append("符合預算範圍")
         
         # 5. 人潮偏好
-        crowd_pref = user_preferences.get("crowd_preference")
+        crowd_pref = user_preferences.get("crowd_preference") if isinstance(user_preferences, dict) else getattr(user_preferences, 'crowd_preference', None)
         if crowd_pref:
-            crowd_score = self._match_crowd_preference(crowd_pref, features.noise_level)
+            crowd_value = crowd_pref if isinstance(crowd_pref, str) else crowd_pref.value
+            crowd_score = self._match_crowd_preference(crowd_value, features.noise_level)
             score += self.weights["crowd_preference"] * crowd_score
         
         # 6. 料理偏好
-        cuisine_prefs = user_preferences.get("cuisine_preferences", [])
+        cuisine_prefs = user_preferences.get("cuisine_preferences", []) if isinstance(user_preferences, dict) else getattr(user_preferences, 'cuisine_types', [])
         if cuisine_prefs:
             cuisine_score = self._match_cuisine_preference(cuisine_prefs, restaurant.cuisine_type)
             score += self.weights["cuisine_preference"] * cuisine_score

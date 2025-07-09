@@ -11,6 +11,10 @@ class GoogleMapsService:
     """Google Maps 服務"""
     
     def __init__(self):
+        # 檢查 API Key 是否有效
+        if not settings.google_maps_api_key or settings.google_maps_api_key == "your_google_maps_api_key_here":
+            raise ValueError("Google Maps API Key 未設定或無效，請檢查 .env 檔案中的 GOOGLE_MAPS_API_KEY 設定")
+        
         self.client = googlemaps.Client(key=settings.google_maps_api_key)
         self.price_level_map = {
             0: PriceLevel.BUDGET,
@@ -47,7 +51,7 @@ class GoogleMapsService:
             
         except Exception as e:
             print(f"餐廳搜尋失敗: {e}")
-            return []
+            raise Exception(f"無法搜尋餐廳: {e}")
     
     async def get_restaurant_details(self, place_id: str) -> Optional[Restaurant]:
         """取得餐廳詳細資訊"""
