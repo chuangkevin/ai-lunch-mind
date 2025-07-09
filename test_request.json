@@ -1,0 +1,11 @@
+{
+  "user_id": "test_user",
+  "message": "我想找附近好吃的中式餐廳",
+  "location": {
+    "latitude": 25.0330,
+    "longitude": 121.5654,
+    "address": "台北市信義區"
+  },
+  "budget": "moderate",
+  "dietary_restrictions": []
+}
