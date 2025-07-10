@@ -9,7 +9,7 @@ import uvicorn
 from src.config import settings
 from src.models import UserQuery, RecommendationResponse, UserLocation
 from src.services.weather_service import weather_service
-from src.services.google_maps_service import google_maps_service
+from src.services.google_search_service import google_search_service
 from src.services.conversation_service import conversation_service
 from src.services.recommendation_engine import recommendation_engine
 
@@ -70,7 +70,7 @@ async def get_recommendations(query: UserQuery):
         weather = await weather_service.get_current_weather(query.location)
         
         # 3. 搜尋附近餐廳
-        restaurants = await google_maps_service.search_nearby_restaurants(query.location)
+        restaurants = await google_search_service.search_nearby_restaurants(query.location)
         if not restaurants:
             raise HTTPException(status_code=404, detail="附近沒有找到餐廳")
         
@@ -111,7 +111,7 @@ async def search_restaurants(lat: float, lng: float, radius: int = 500):
     """搜尋附近餐廳"""
     try:
         location = UserLocation(latitude=lat, longitude=lng)
-        restaurants = await google_maps_service.search_nearby_restaurants(location, radius)
+        restaurants = await google_search_service.search_nearby_restaurants(location, radius)
         return {"restaurants": restaurants, "count": len(restaurants)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"餐廳搜尋失敗: {str(e)}")

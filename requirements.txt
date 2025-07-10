@@ -20,9 +20,9 @@ psycopg2-binary==2.9.9
 # 環境變數管理
 python-dotenv==1.0.0
 
-# Google API
-googlemaps==4.10.0
-google-cloud-translate==3.13.0
+# Google 搜尋替代方案
+googlesearch-python==1.2.3
+beautifulsoup4==4.12.2
 
 # 圖像處理和 OCR
 Pillow==10.2.0
