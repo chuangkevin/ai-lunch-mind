@@ -142,3 +142,9 @@ Thumbs.db
 *.log
 test_data/
 temp/
+
+# 環境變數文件 (包含敏感的 API Keys)
+.env
+.env.local
+.env.production
+.env.staging

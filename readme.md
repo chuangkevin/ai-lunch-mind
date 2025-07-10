@@ -139,3 +139,34 @@ graph TD
 設計推薦邏輯：rule-based 初版
 
 實作回饋問卷儲存 + 偏好更新邏輯
+
+---
+
+## 🐳 Docker 部署
+
+### 快速啟動
+
+1. **複製環境變數檔案**
+```bash
+cp .env.docker .env
+```
+
+2. **設定 API Keys**
+編輯 `.env` 檔案，填入您的 API Keys
+
+3. **啟動容器**
+```bash
+# 生產環境
+docker-compose up -d
+
+# 開發環境 (支援熱重載)
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+4. **訪問應用程式**
+- 主應用程式: http://localhost:8000
+- API 文檔: http://localhost:8000/docs
+
+詳細部署說明請參考 [DOCKER_DEPLOY.md](DOCKER_DEPLOY.md)
+
+---

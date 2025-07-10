@@ -1,0 +1,73 @@
+# Docker 相關檔案
+.dockerignore
+Dockerfile.dev
+
+# 本地開發檔案
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE 檔案
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 測試和臨時檔案
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# 環境變數檔案 (敏感資訊)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# 日誌檔案
+*.log
+logs/
+
+# 作業系統檔案
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git 檔案
+.git
+.gitignore
+.gitattributes
+
+# 文檔檔案 (可選，看是否要包含)
+*.md
+!README.md
+
+# 測試檔案
+tests/
+test_*.py
+*_test.py
+
+# 開發腳本
+start.bat
+start.sh
+clean_project.py
+*_check.py
+*_diagnostic.py

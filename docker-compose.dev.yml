@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  ai-lunch-mind-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - CWB_API_KEY=${CWB_API_KEY}
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    volumes:
+      - ./src:/app/src  # 開發模式掛載源碼
+      - ./frontend:/app/frontend
+    restart: unless-stopped
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    
+  redis-dev:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
