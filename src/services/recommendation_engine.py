@@ -10,6 +10,7 @@ from src.models import (
 from src.services.weather_service import weather_service
 from src.services.google_maps_service import google_maps_service
 from src.services.conversation_service import conversation_service
+from src.services.crowd_analysis_service import crowd_analysis_service
 
 class RecommendationEngine:
     """推薦引擎"""
@@ -258,23 +259,15 @@ class RecommendationEngine:
         return min(score, 1.0)
     
     def _estimate_crowd_level(self, restaurant: Restaurant, weather: WeatherCondition) -> CrowdLevel:
-        """估算人潮等級"""
-        # 簡化的人潮估算邏輯
-        base_level = CrowdLevel.MODERATE
+        """估算人潮等級 - 使用增強版人潮分析服務"""
+        crowd_level, confidence, reason = crowd_analysis_service.estimate_crowd_level(
+            restaurant, weather
+        )
         
-        # 評分高的餐廳通常人較多
-        if restaurant.rating and restaurant.rating >= 4.5:
-            if base_level == CrowdLevel.MODERATE:
-                base_level = CrowdLevel.BUSY
+        # 記錄分析結果用於調試
+        print(f"🏢 {restaurant.name} 人潮預測: {crowd_level.value} (信心度: {confidence:.2f}) - {reason}")
         
-        # 天氣不好時人潮較少
-        if weather.rain_probability > 50 or weather.temperature < 10:
-            if base_level == CrowdLevel.BUSY:
-                base_level = CrowdLevel.MODERATE
-            elif base_level == CrowdLevel.MODERATE:
-                base_level = CrowdLevel.QUIET
-        
-        return base_level
+        return crowd_level
     
     def _get_sweat_recommendation(self, sweat_score: float) -> str:
         """取得流汗指數建議"""
