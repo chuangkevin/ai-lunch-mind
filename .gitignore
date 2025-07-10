@@ -148,3 +148,48 @@ temp/
 .env.local
 .env.production
 .env.staging
+
+# AI 午餐推薦系統 - 自定義忽略規則
+# ==============================================
+
+# 臨時測試檔案
+test_*.py
+*_test.py
+debug_*.py
+quick_*.py
+simple_*.py
+validation_*.py
+
+# 診斷和檢查檔案
+*_diagnostic.py
+*_check.py
+cwb_api_check.py
+detailed_*.py
+
+# 臨時報告檔案 (避免重複報告)
+TEMP_*.md
+OLD_*.md
+BACKUP_*.md
+*_TEMP.md
+
+# 日志檔案
+*.log
+logs/
+
+# 臨時檔案
+*.tmp
+*.temp
+temp/
+tmp/
+
+# IDE 和編輯器檔案
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# 系統檔案
+.DS_Store
+Thumbs.db
+desktop.ini
