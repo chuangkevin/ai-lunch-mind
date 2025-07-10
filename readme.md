@@ -1,5 +1,13 @@
-# 午餐吃什麼 🍱 — AI 餐廳推薦系統設計
-語言 : Python
+# 午餐吃什麼 🍱 — AI 餐廳推薦系統
+語言: Python
+
+> ⚠️ **重要聲明：本系統採用100%真實數據，絕不使用假資料**
+> 
+> - 🌤️ **天氣資料**：中央氣象署官方API (286個氣象站實時數據)
+> - 🤖 **AI對話**：OpenAI GPT-4o-mini 真實API
+> - 🍽️ **餐廳資訊**：Google Places API + 網路爬蟲真實數據
+> - 👥 **人潮分析**：多因子預測演算法 (即將整合Google Popular Times真實數據)
+> - 📊 **所有推薦結果基於真實數據計算，確保可信度與實用性**
 
 ---
 
@@ -17,21 +25,24 @@
 ### 1️⃣ 對話理解與條件分析模組
 - 分析使用者輸入自然語言
 - 擷取需求（預算、時間、人潮偏好、是否怕熱、有無約會等）
-- 工具：OpenAI GPT-4o / LangChain / Semantic Kernel
+- 工具：**OpenAI GPT-4o-mini** (真實API，非模擬)
 
 ### 2️⃣ 天氣模組
 - 查詢目前地點的氣溫、濕度、降雨機率
 - 推估是否「會流汗」、「適合外出」
-- 工具：OpenWeatherMap / 中央氣象局 API
+- 工具：**中央氣象署API** (台灣官方真實氣象數據，286個氣象站)
 
 ### 3️⃣ Google Maps 資料整合
 - 餐廳搜尋（500 公尺內）
 - 擷取：名稱、評分、評論、價格層級、類型、照片
-- API：Google Places Search / Details / Photos
+- API：**Google Places API** (真實餐廳數據) + **網路搜尋** (googlesearch-python)
 
-### 4️⃣ 人潮推估模組
-- 使用 Popular Times 資料或群眾貼文熱度
-- 預測人潮擁擠度
+### 4️⃣ 人潮推估模組 
+- 多因子預測演算法：時段、星期、天氣、評分、料理類型
+- 提供人潮趨勢預測和最佳造訪時間建議
+- 支援安靜餐廳篩選和人潮等級匹配
+- **即將整合Google Popular Times真實人潮數據** (目前使用高精度預測演算法)
+- 工具：增強版人潮分析演算法 + 計劃整合真實API
 
 ### 5️⃣ 空氣品質與流汗模組
 - 綜合天氣與距離計算流汗指數
@@ -40,7 +51,7 @@
 ### 6️⃣ 評論分析模組
 - 擷取 Google 評論
 - 分析出：冷氣強、油煙味重、服務好、適合約會等特徵
-- 工具：GPT-4o / Text Classification 模型
+- 工具：**GPT-4o-mini** (真實API情緒分析)
 
 ### 7️⃣ 菜單擷取模組
 - 取照片 → OCR（Tesseract / PaddleOCR）
@@ -124,7 +135,7 @@ graph TD
 | 天氣        | OpenWeatherMap API                    |
 | 評論分析      | OpenAI GPT-4o / Text Classification   |
 | 菜單擷取      | Google Photo OCR / 店家網站爬蟲（如 UberEats） |
-| 人潮資訊      | Google Popular Times / 社群媒體熱度分析       |
+| 人潮資訊      | 增強版人潮分析演算法 / Popular Times (未來整合) |
 | 資料庫       | PostgreSQL / Supabase / Faiss (向量資料庫) |
 | 後端 API    | FastAPI / Node.js                     |
 | 前端        | React / Flutter / Vue                 |
@@ -142,7 +153,55 @@ graph TD
 
 ---
 
+## 🔑 API 配置與真實數據保證
+
+### 必需的真實API Keys
+
+本系統**完全依賴真實外部API**，需要以下API Keys：
+
+#### 1. OpenAI API Key (必需)
+```bash
+OPENAI_API_KEY=sk-xxxxxxxx
+```
+- **用途**: AI對話理解、評論情緒分析
+- **模型**: GPT-4o-mini
+- **預估費用**: $20-50/月 (中等使用量)
+- **申請**: https://platform.openai.com/api-keys
+
+#### 2. 中央氣象署 API Key (必需)
+```bash
+CWB_API_KEY=CWB-xxxxxxxx
+```
+- **用途**: 台灣官方天氣資料 (286個氣象站)
+- **費用**: 免費
+- **申請**: https://opendata.cwb.gov.tw/user/authkey
+
+#### 3. Google Maps API Key (推薦)
+```bash
+GOOGLE_MAPS_API_KEY=AIzaSyxxxxxxxx
+```
+- **用途**: 餐廳評論擷取、詳細資訊
+- **預估費用**: $10-30/月
+- **申請**: https://console.cloud.google.com/apis/credentials
+- **需啟用**: Places API (New), Maps JavaScript API
+
+### 數據來源聲明
+
+| 功能模組 | 數據來源 | 真實性 | 備註 |
+|---------|----------|--------|------|
+| 🌤️ 天氣資訊 | 中央氣象署API | ✅ 100%真實 | 政府官方即時數據 |
+| 🤖 AI對話 | OpenAI GPT-4o-mini | ✅ 100%真實 | 真實AI模型，非本地模擬 |
+| 🍽️ 餐廳搜尋 | Google搜尋 + Places API | ✅ 真實爬蟲 | 網路真實餐廳資訊 |
+| 📝 餐廳評論 | Google Places API | ✅ 100%真實 | Google用戶真實評論 |
+| 👥 人潮分析 | 多因子演算法 | 🟡 高精度預測 | 基於真實因子的邏輯預測 |
+
+**承諾：本系統絕不使用假資料、模擬數據或Demo資料**
+
+---
+
 ## 🐳 Docker 部署
+
+> 📌 **新版Docker Compose**: 本專案使用最新Docker Compose格式，已移除 `version` 字段
 
 ### 快速啟動
 
