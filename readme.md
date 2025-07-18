@@ -141,8 +141,6 @@ graph TD
 | 前端        | React / Flutter / Vue                 |
 
 ⛏️ 下一步建議
-註冊 Google Maps API Key，開通 Places API
-
 實作附近餐廳搜尋 + 評論擷取功能
 
 將使用者輸入轉為條件 JSON（可用 GPT）
