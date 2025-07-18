@@ -61,3 +61,33 @@ AI-LUNCH-MIND/
 OPENAI_API_KEY=sk-xxx
 CWB_API_KEY=CWB-xxx
 ```
+
+### 天氣模組更新
+
+#### 使用方式
+
+1. 確保 `.env` 檔案中已設定 `CWB_API_KEY` 環境變數。
+
+2. 呼叫 `get_weather_data(latitude, longitude)` 函數，傳入經緯度參數。
+
+3. 函數將返回包含氣溫、濕度與降雨機率的天氣資料。
+
+#### API 整合
+
+- **API 提供者**: 中央氣象署
+
+- **API URL**: `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001`
+
+- **參數**:
+
+  - `Authorization`: API 金鑰
+
+  - `elementName`: 查詢的天氣元素（如 TEMP, HUMD, RAIN）
+
+  - `parameterName`: 經緯度參數（LAT, LON）
+
+#### 注意事項
+
+- 測試環境中已禁用 SSL 驗證，生產環境建議啟用。
+
+- 若 API 回應資料過多，需根據經緯度篩選最近的氣象站資料。
