@@ -1,1 +1,12 @@
 ﻿.env
+__pycache__/
+*.pyc
+
+# 排除測試檔案
+# 排除所有 test 相關檔案與資料夾
+test_*.py
+*_test.py
+tests/
+**/test_*.py
+**/*_test.py
+**/tests/
