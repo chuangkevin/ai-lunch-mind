@@ -1,0 +1,19 @@
+# 核心框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-dotenv==1.0.0
+
+# HTTP 請求與網頁解析
+requests==2.31.0
+beautifulsoup4==4.12.2
+urllib3==2.0.7
+
+# 地理位置處理
+geopy==2.4.0
+
+# Selenium 自動化 (適用於容器環境)
+selenium==4.15.0
+webdriver-manager==4.0.1
+
+# 可選：如果需要無頭 Chrome
+# 注意：容器中需要額外安裝 Chrome 瀏覽器

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  ai-lunch-mind:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - CWB_API_TOKEN=${CWB_API_TOKEN}
+    volumes:
+      # 可選：掛載 .env 檔案
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
