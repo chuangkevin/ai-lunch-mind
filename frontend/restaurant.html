@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 餐廳推薦系統</title>
+  <style>
+    body { background: linear-gradient(120deg, #f0f4ff 0%, #fff5f5 100%); margin: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+    .chat-container { max-width: 480px; margin: 40px auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px #0002; padding: 0; display: flex; flex-direction: column; height: 85vh; }
+    .chat-header { padding: 1.2em 1.5em; background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: #fff; border-radius: 16px 16px 0 0; font-size: 1.3em; font-weight: bold; letter-spacing: 1px; text-align: center; }
+    .chat-subtitle { padding: 0 1.5em 1em; background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: #fff; font-size: 0.9em; opacity: 0.9; text-align: center; border-radius: 0 0 16px 16px; margin-bottom: 1em; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 0 1.5em 1.5em; display: flex; flex-direction: column; gap: 1.2em; }
+    .msg { max-width: 85%; padding: 1em 1.2em; border-radius: 16px; font-size: 1.05em; line-height: 1.6; }
+    .msg.user { align-self: flex-end; background: #ffe4e1; color: #d63384; border-bottom-right-radius: 4px; }
+    .msg.bot { align-self: flex-start; background: #f8f9ff; color: #222; border-bottom-left-radius: 4px; box-shadow: 0 2px 8px #0001; }
+    .restaurant-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1em; margin: 0.5em 0; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .restaurant-name { font-weight: bold; color: #ff6b6b; font-size: 1.1em; margin-bottom: 0.5em; }
+    .restaurant-info { font-size: 0.95em; color: #666; line-height: 1.5; }
+    .restaurant-rating { color: #ffa500; font-weight: bold; }
+    .restaurant-distance { color: #007bff; font-weight: bold; }
+    .restaurant-address { color: #6c757d; margin: 0.3em 0; }
+    .restaurant-link { color: #007bff; text-decoration: none; font-size: 0.9em; }
+    .restaurant-link:hover { text-decoration: underline; }
+    .chat-input-area { display: flex; flex-direction: column; padding: 1.2em; border-top: 1px solid #e5e7eb; background: #f7fafc; border-radius: 0 0 16px 16px; }
+    .input-row { display: flex; gap: 0.8em; margin-bottom: 0.8em; }
+    .chat-input { flex: 1; padding: 0.8em 1em; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1em; outline: none; }
+    .keyword-input { flex: 0.7; }
+    .location-input { flex: 1.3; }
+    .chat-send { background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: #fff; border: none; border-radius: 8px; padding: 0.8em 1.5em; font-size: 1em; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; align-self: flex-start; }
+    .chat-send:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3); }
+    .example-text { font-size: 0.85em; color: #666; margin-top: 0.5em; }
+    .loading { text-align: center; color: #666; font-style: italic; }
+    @media (max-width: 600px) {
+      .chat-container { max-width: 100vw; height: 100vh; border-radius: 0; margin: 0; }
+      .chat-header, .chat-messages, .chat-input-area { padding-left: 1em; padding-right: 1em; }
+      .input-row { flex-direction: column; gap: 0.5em; }
+      .chat-send { align-self: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">🍽️ AI 餐廳推薦助手</div>
+    <div class="chat-subtitle">輸入地址和想吃的食物，立即找到附近美食！</div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg bot">
+        您好！我是您的餐廳推薦助手 🤖<br><br>
+        請輸入：<br>
+        📍 <strong>地址或位置</strong>（支援 Google Maps 短網址）<br>
+        🍴 <strong>想吃的食物類型</strong><br><br>
+        例如：<br>
+        • 地址：台北中山區，食物：火鍋<br>
+        • 地址：https://maps.app.goo.gl/..，食物：羊肉<br>
+        • 地址：彰化大佛，食物：燒烤
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="input-row">
+        <input class="chat-input location-input" id="location-input" type="text" placeholder="輸入地址、地標或 Google Maps 短網址..." autocomplete="off" />
+        <input class="chat-input keyword-input" id="keyword-input" type="text" placeholder="想吃什麼？" autocomplete="off" />
+      </div>
+      <button class="chat-send" type="button" onclick="searchRestaurants()">🔍 搜尋餐廳</button>
+      <div class="example-text">
+        💡 提示：地址可以是詳細地址、地標名稱，甚至是 Google Maps 分享的短網址
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const locationInput = document.getElementById('location-input');
+    const keywordInput = document.getElementById('keyword-input');
+
+    function appendMsg(content, sender) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + sender;
+      div.innerHTML = content;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return div;
+    }
+
+    function formatRestaurant(restaurant) {
+      let html = `<div class="restaurant-card">`;
+      html += `<div class="restaurant-name">🍽️ ${restaurant.name || '未知餐廳'}</div>`;
+      
+      let infoItems = [];
+      if (restaurant.address) {
+        infoItems.push(`📍 ${restaurant.address}`);
+      }
+      if (restaurant.distance_km !== null && restaurant.distance_km !== undefined) {
+        infoItems.push(`📏 距離 <span class="restaurant-distance">${restaurant.distance_km} 公里</span>`);
+      }
+      if (restaurant.rating) {
+        infoItems.push(`⭐ 評分 <span class="restaurant-rating">${restaurant.rating}</span>`);
+      }
+      if (restaurant.price_level) {
+        infoItems.push(`💰 價格 ${restaurant.price_level}`);
+      }
+      
+      if (infoItems.length > 0) {
+        html += `<div class="restaurant-info">${infoItems.join('<br>')}</div>`;
+      }
+      
+      if (restaurant.maps_url) {
+        html += `<div style="margin-top: 0.8em;">`;
+        html += `<a href="${restaurant.maps_url}" target="_blank" class="restaurant-link">🗺️ 在 Google Maps 中查看</a>`;
+        html += `</div>`;
+      }
+      
+      html += `</div>`;
+      return html;
+    }
+
+    async function searchRestaurants() {
+      const location = locationInput.value.trim();
+      const keyword = keywordInput.value.trim();
+      
+      if (!location && !keyword) {
+        appendMsg('❌ 請至少輸入地址或食物類型！', 'bot');
+        return;
+      }
+      
+      // 顯示使用者輸入
+      let userMsg = '';
+      if (location) userMsg += `📍 ${location}`;
+      if (location && keyword) userMsg += '<br>';
+      if (keyword) userMsg += `🍴 ${keyword}`;
+      
+      appendMsg(userMsg, 'user');
+      
+      // 顯示載入訊息
+      const loadingMsg = appendMsg('🔍 正在搜尋附近的美味餐廳...', 'bot');
+      
+      try {
+        // 建構 API 請求
+        const params = new URLSearchParams();
+        if (keyword) params.append('keyword', keyword);
+        if (location) params.append('user_address', location);
+        params.append('max_results', '8');
+        
+        const response = await fetch(`/restaurants?${params.toString()}`);
+        
+        if (!response.ok) {
+          throw new Error(`API 請求失敗 (${response.status})`);
+        }
+        
+        const data = await response.json();
+        
+        // 移除載入訊息
+        loadingMsg.remove();
+        
+        if (!data.restaurants || data.restaurants.length === 0) {
+          appendMsg('😅 很抱歉，沒有找到符合條件的餐廳。<br>建議：<br>• 嘗試更寬泛的關鍵字<br>• 檢查地址是否正確<br>• 嘗試不同的食物類型', 'bot');
+          return;
+        }
+        
+        // 顯示搜尋結果
+        let resultMsg = `🎉 找到 ${data.restaurants.length} 家餐廳：<br><br>`;
+        data.restaurants.forEach((restaurant, index) => {
+          resultMsg += formatRestaurant(restaurant);
+        });
+        
+        appendMsg(resultMsg, 'bot');
+        
+        // 清空輸入框
+        keywordInput.value = '';
+        locationInput.value = '';
+        
+      } catch (error) {
+        console.error('搜尋錯誤:', error);
+        loadingMsg.innerHTML = `❌ 搜尋失敗：${error.message}<br><br>請檢查：<br>• 網路連線是否正常<br>• 伺服器是否啟動<br>• 輸入格式是否正確`;
+      }
+    }
+
+    // 支援 Enter 鍵搜尋
+    locationInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        searchRestaurants();
+      }
+    });
+
+    keywordInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        searchRestaurants();
+      }
+    });
+
+    // 頁面載入完成後聚焦到地址輸入框
+    window.onload = function() {
+      locationInput.focus();
+    };
+  </script>
+</body>
+</html>
