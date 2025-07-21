@@ -1,93 +1,257 @@
 # 午餐吃什麼 🍱 — AI 餐廳推薦系統
 
 > 專案目標：根據天氣、預算、時間、人潮、空氣品質與對話輸入，使用 AI 分析與實時資料推薦用餐地點。  
-> ✅ **100% 真實資料**｜✅ **可部署 API**｜✅ **模組化設計**｜✅ **支援 Copilot 與 Docker Compose**
+> ✅ **100% 真實資料**｜✅ **可部署 API**｜✅ **模組化設計**｜✅ **現代化前端介面**
+
+---
+
+## 🎯 專案現況
+
+### ✅ 已完成功能
+
+- **天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、降雨機率
+- **現代化前端**：聊天機器人風格的天氣查詢介面
+- **FastAPI 後端**：高性能 REST API 與靜態檔案服務
+- **台灣地點資料**：100+ 測試地點覆蓋本島與離島
+
+### 🚧 開發中功能
+
+以下模組已建立框架，等待後續實作：
+
+- 空氣品質與流汗指數計算
+- 人潮推估與尖峰時段預測
+- Google Maps 餐廳搜尋整合
+- 菜單 OCR 與結構化處理
+- 智慧推薦排序引擎
 
 ---
 
 ## 🧠 專案概念
-本系統整合 **OpenAI** 對話分析、**Google Maps** 餐廳搜尋、**中央氣象署** 天氣資料、人潮推估、空氣品質與使用者回饋，透過多因子推薦模型提供最合適的餐廳建議。
+
+本系統整合 **中央氣象署** 天氣資料、**Google Maps** 餐廳搜尋、人潮推估、空氣品質與使用者回饋，透過多因子推薦模型提供最合適的餐廳建議。
 
 ---
 
 ## 📁 專案結構
+
 ```plaintext
-AI-LUNCH-MIND/
-├── modules/                      # 功能模組（純邏輯 / 第三方 API）
-│   ├── air_quality.py            # 流汗指數／油煙敏感度
-│   ├── crowd_estimation.py       # 人潮預測
-│   ├── dialog_analysis.py        # GPT 對話理解
-│   ├── feedback_learning.py      # 使用者回饋學習
-│   ├── google_maps.py            # Google Places 搜尋與詳情
-│   ├── menu_extraction.py        # 菜單 OCR／分類
-│   ├── recommendation_engine.py  # 推薦排序（rule-based／ML）
-│   ├── review_analysis.py        # Google 評論 NLP
-│   └── weather.py                # 中央氣象署天氣查詢
+```plaintext
+ai-lunch-mind/
+├── frontend/                     # 前端介面
+│   ├── index.html                # 首頁目錄
+│   └── weather.html              # 天氣查詢聊天機器人
 │
-├── main.py                       # FastAPI 入口
-├── .env                          # API Key 設定（請參考 .env.example）
-├── .dockerignore
-├── Dockerfile
-├── docker-compose.yml
-└── README.md
-
-
-🧰 技術棧與工具
-| 項目     | 技術                          | 說明                    |
-| ------ | --------------------------- | --------------------- |
-| 語言     | Python 3.10+                | 使用 type hints + async |
-| 框架     | FastAPI                     | 高性能後端 REST API        |
-| AI 對話  | OpenAI GPT-4o / gpt-4o-mini | 分析使用者意圖與評論情緒          |
-| 餐廳搜尋   | Google Places API           | 餐廳位置、評論、照片            |
-| 天氣資料   | 中央氣象局 API                   | 取得實時天氣資料              |
-| OCR    | PaddleOCR / Tesseract       | 菜單圖片文字辨識              |
-| DB 儲存  | PostgreSQL / Supabase       | 儲存回饋與偏好               |
-| 前端（可選） | React / Flutter             | 可選配合的前端介面             |
-
-🔗 API 路徑一覽
-| 功能     | 路徑                             | 方法   |
-| ------ | ------------------------------ | ---- |
-| 智慧推薦   | /recommend                     | POST |
-| 餐廳搜尋   | /restaurants/search            | GET  |
-| 天氣查詢   | /weather                       | GET  |
-| 流汗指數   | /api/sweat-index               | POST |
-| 餐廳推薦   | /api/restaurant-recommendation | POST |
-| 人潮分析   | /crowd/analysis                | GET  |
-| 安靜餐廳   | /crowd/quiet-restaurants       | GET  |
-| 對話查詢分析 | /analyze/query                 | POST |
-
- 🔑 API 金鑰需求（填入 .env）
- ```env
-OPENAI_API_KEY=sk-xxx
-CWB_API_KEY=CWB-xxx
+├── modules/                      # 功能模組
+│   ├── air_quality.py            # 🚧 空氣品質與流汗指數
+│   ├── crowd_estimation.py       # 🚧 人潮預測與分析
+│   ├── google_maps.py            # 🚧 Google Places 整合
+│   ├── menu_extraction.py        # 🚧 菜單 OCR 與解析
+│   ├── recommendation_engine.py  # 🚧 推薦排序引擎
+│   ├── taiwan_locations.py       # ✅ 台灣測試地點資料
+│   └── weather.py                # ✅ 中央氣象署天氣 API
+│
+├── main.py                       # ✅ FastAPI 主程式
+├── .env                          # API 金鑰設定
+├── .gitignore                    # Git 忽略檔案設定
+└── README.md                     # 專案說明文件
 ```
 
-### 天氣模組更新
+---
 
-#### 使用方式
+## 🚀 快速開始
 
-1. 確保 `.env` 檔案中已設定 `CWB_API_KEY` 環境變數。
+### 1. 環境需求
 
-2. 呼叫 `get_weather_data(latitude, longitude)` 函數，傳入經緯度參數。
+- Python 3.8+
+- 中央氣象署 Open Data API Token
 
-3. 函數將返回包含氣溫、濕度與降雨機率的天氣資料。
+### 2. 安裝與設定
 
-#### API 整合
+```bash
+# 1. 複製專案
+git clone <repository-url>
+cd ai-lunch-mind
 
-- **API 提供者**: 中央氣象署
+# 2. 建立 .env 檔案
+echo "CWB_API_TOKEN=your_cwb_api_token_here" > .env
 
-- **API URL**: `https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001`
+# 3. 安裝依賴
+pip install fastapi uvicorn requests python-dotenv
 
-- **參數**:
+# 4. 啟動伺服器
+python main.py
+```
 
-  - `Authorization`: API 金鑰
+### 3. 取得 API Token
 
-  - `elementName`: 查詢的天氣元素（如 TEMP, HUMD, RAIN）
+1. 前往 [中央氣象署 Open Data](https://opendata.cwb.gov.tw/index) 註冊帳號
+2. 申請 API 授權碼
+3. 將授權碼加入 `.env` 檔案
 
-  - `parameterName`: 經緯度參數（LAT, LON）
+---
 
-#### 注意事項
+## 📡 API 端點
 
-- 測試環境中已禁用 SSL 驗證，生產環境建議啟用。
+### 天氣查詢 API
 
-- 若 API 回應資料過多，需根據經緯度篩選最近的氣象站資料。
+**GET** `/weather`
+
+查詢指定座標的即時天氣資訊
+
+#### 參數
+
+- `latitude` (float): 緯度 (必填)
+- `longitude` (float): 經度 (必填)
+
+#### 回應範例
+
+```json
+{
+  "temperature": 28.5,
+  "humidity": 75,
+  "pop": 30,
+  "location": "台北市",
+  "timestamp": "2024-01-15T14:30:00Z"
+}
+```
+
+#### 使用範例
+
+```bash
+# 台北 101 天氣
+curl "http://localhost:8000/weather?latitude=25.0340&longitude=121.5645"
+```
+
+### 前端介面
+
+- **首頁目錄**: `http://localhost:8000/`
+- **天氣聊天機器人**: `http://localhost:8000/static/weather.html`
+
+---
+
+## 🛠 技術架構
+
+### 後端技術
+
+- **FastAPI**: 高性能 ASGI 框架，自動產生 OpenAPI 文件
+- **Uvicorn**: ASGI 伺服器，支援異步處理
+- **Requests**: HTTP 客戶端，用於 API 呼叫
+- **Python-dotenv**: 環境變數管理
+
+### 前端技術
+
+- **原生 HTML/CSS/JS**: 輕量化前端，無框架依賴
+- **響應式設計**: 支援桌機與行動裝置
+- **聊天機器人介面**: 直觀的對話式查詢體驗
+
+### 外部 API
+
+- **中央氣象署 Open Data API**: 官方天氣資料來源
+  - 使用 `F-D0047-001` 至 `F-D0047-093` 系列資料集
+  - 涵蓋全台灣本島與離島天氣預報
+
+---
+
+## 🔧 開發規劃
+
+### 待實作模組
+
+#### 1. 空氣品質模組 (`air_quality.py`)
+
+```python
+def calculate_air_quality_impact(pm25: float, location: str) -> dict
+def estimate_sweat_index(temp: float, humidity: float, wind_speed: float) -> float
+def get_pollution_alerts(latitude: float, longitude: float) -> list
+```
+
+#### 2. 人潮預測模組 (`crowd_estimation.py`)
+
+```python
+def predict_crowd_level(restaurant_id: str, datetime_obj: datetime) -> dict
+def get_peak_hours(restaurant_id: str, day_of_week: int) -> list
+def analyze_wait_time(restaurant_id: str, current_time: datetime) -> dict
+```
+
+#### 3. Google Maps 整合 (`google_maps.py`)
+
+```python
+def search_restaurants(latitude: float, longitude: float, radius: int) -> list
+def get_restaurant_details(place_id: str) -> dict
+def get_restaurant_reviews(place_id: str, limit: int) -> list
+```
+
+#### 4. 菜單處理模組 (`menu_extraction.py`)
+
+```python
+def extract_menu_from_image(image_path: str) -> dict
+def categorize_menu_items(menu_text: str) -> dict
+def estimate_price_range(menu_items: list) -> dict
+```
+
+#### 5. 推薦引擎 (`recommendation_engine.py`)
+
+```python
+def calculate_restaurant_score(restaurant_data: dict, user_preferences: dict) -> float
+def rank_restaurants(restaurants: list, weather_data: dict, user_context: dict) -> list
+def explain_recommendation(restaurant: dict, factors: dict) -> str
+```
+
+---
+
+## 🎯 專案目標
+
+### 短期目標 (1-2 週)
+
+- [ ] 完成 Google Maps API 整合
+- [ ] 實作基礎推薦演算法
+- [ ] 建立簡單的前端查詢介面
+
+### 中期目標 (1-2 個月)
+
+- [ ] 整合空氣品質與人潮預測
+- [ ] 實作菜單 OCR 功能
+- [ ] 加入使用者偏好學習
+
+### 長期目標 (3-6 個月)
+
+- [ ] 部署至雲端平台
+- [ ] 建立完整的機器學習推薦模型
+- [ ] 開發行動應用程式
+
+---
+
+## 📊 測試資料
+
+專案包含 100+ 台灣測試地點，覆蓋：
+
+- **本島城市**: 台北、新北、桃園、台中、台南、高雄等
+- **離島地區**: 金門、馬祖、澎湖、綠島、蘭嶼等
+- **山區景點**: 陽明山、阿里山、太魯閣等
+
+---
+
+## 🤝 貢獻指南
+
+1. Fork 此專案
+2. 建立功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 開啟 Pull Request
+
+---
+
+## 📝 授權條款
+
+本專案採用 MIT 授權條款 - 詳見 [LICENSE](LICENSE) 檔案
+
+---
+
+## 📞 聯絡資訊
+
+專案維護者：[您的名稱]  
+Email: [您的 Email]  
+專案連結：[GitHub Repository URL]
+
+---
+
+> 最後更新：2024年1月
