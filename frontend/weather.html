@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>天氣對話查詢</title>
+  <style>
+    body { background: linear-gradient(120deg, #e0e7ff 0%, #f7fafc 100%); margin: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+    .chat-container { max-width: 420px; margin: 40px auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px #0002; padding: 0; display: flex; flex-direction: column; height: 80vh; }
+    .chat-header { padding: 1.2em 1.5em; background: #2a5d9f; color: #fff; border-radius: 16px 16px 0 0; font-size: 1.3em; font-weight: bold; letter-spacing: 1px; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 1.5em; display: flex; flex-direction: column; gap: 1.2em; }
+    .msg { max-width: 80%; padding: 1em 1.2em; border-radius: 16px; font-size: 1.05em; line-height: 1.6; }
+    .msg.user { align-self: flex-end; background: #e0e7ff; color: #2a5d9f; border-bottom-right-radius: 4px; }
+    .msg.bot { align-self: flex-start; background: #f0f6ff; color: #222; border-bottom-left-radius: 4px; box-shadow: 0 2px 8px #0001; }
+    .chat-input-area { display: flex; padding: 1.2em; border-top: 1px solid #e5e7eb; background: #f7fafc; border-radius: 0 0 16px 16px; }
+    .chat-input { flex: 1; padding: 0.8em 1em; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1em; outline: none; }
+    .chat-send { margin-left: 0.8em; background: #2a5d9f; color: #fff; border: none; border-radius: 8px; padding: 0.8em 1.5em; font-size: 1em; cursor: pointer; transition: background 0.2s; }
+    .chat-send:hover { background: #17406a; }
+    @media (max-width: 600px) {
+      .chat-container { max-width: 100vw; height: 100vh; border-radius: 0; }
+      .chat-header, .chat-messages, .chat-input-area { padding-left: 1em; padding-right: 1em; }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">天氣小助手</div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg bot">您好！請輸入地點（如「台北」或「25.0478,121.5319」）查詢天氣。</div>
+    </div>
+    <form class="chat-input-area" onsubmit="sendMsg(event)">
+      <input class="chat-input" id="chat-input" type="text" placeholder="請輸入地點或經緯度..." autocomplete="off" />
+      <button class="chat-send" type="submit">送出</button>
+    </form>
+  </div>
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+
+    function appendMsg(text, sender) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + sender;
+      div.innerHTML = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function parseInput(input) {
+      // 經緯度格式：25.0478,121.5319 或 25.0478 121.5319
+      const latlon = input.match(/(-?\\d+\\.\\d+)\\s*,?\\s*(-?\\d+\\.\\d+)/);
+      if (latlon) {
+        return { latitude: latlon[1], longitude: latlon[2] };
+      }
+      // 地名直接回傳
+      return { location: input.trim() };
+    }
+
+    async function sendMsg(e) {
+      e.preventDefault();
+      const input = chatInput.value.trim();
+      if (!input) return;
+      appendMsg(input, 'user');
+      chatInput.value = '';
+      // 判斷輸入格式
+      const parsed = parseInput(input);
+      appendMsg('查詢中...', 'bot');
+      let url = '';
+      if (parsed.latitude && parsed.longitude) {
+        url = `/weather?latitude=${parsed.latitude}&longitude=${parsed.longitude}`;
+      } else if (parsed.location) {
+        // 這裡假設 API 支援 /weather?location=地名
+        url = `/weather?location=${encodeURIComponent(parsed.location)}`;
+      }
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('API 回應失敗');
+        const data = await resp.json();
+        if (!data || Object.keys(data).length === 0) {
+          chatMessages.lastChild.innerHTML = '查無資料';
+          return;
+        }
+        let html = '<b>天氣資訊：</b><br>';
+        if (data.temperature !== undefined) html += `溫度：${data.temperature}°C<br>`;
+        if (data.humidity !== undefined) html += `濕度：${data.humidity}%<br>`;
+        if (data.pop !== undefined) html += `降雨機率：${data.pop}%<br>`;
+        if (data.locationName) html += `地點：${data.locationName}<br>`;
+        chatMessages.lastChild.innerHTML = html;
+      } catch (e) {
+        chatMessages.lastChild.innerHTML = `<span style='color:#c00'>查詢失敗：${e.message}</span>`;
+      }
+    }
+  </script>
+</body>
+</html>
