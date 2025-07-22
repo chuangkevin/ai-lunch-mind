@@ -76,6 +76,7 @@ def weather_endpoint(latitude: float = None, longitude: float = None, location: 
                 "temperature": weather_data.get('temperature'),
                 "humidity": weather_data.get('humidity'),
                 "wind_speed": weather_data.get('wind_speed'),
+                "rain_probability": weather_data.get('rain_probability', {}),
                 "station_name": weather_data.get('station_name'),
                 "distance_km": weather_data.get('distance_km'),
                 "data_time": weather_data.get('data_time')
@@ -211,10 +212,10 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
         print(f"[API] 增強版天氣查詢請求 - 地點: {display_name}")
         
         # 獲取天氣資料
-        weather_data = get_real_weather_data(latitude, longitude)
+        weather_data = get_weather_data(latitude, longitude)
         
         if 'error' in weather_data:
-            raise HTTPException(status_code=500, detail=weather_data['message'])
+            raise HTTPException(status_code=500, detail=weather_data.get('error', '未知錯誤'))
         
         # 回傳天氣資訊
         return {
@@ -224,7 +225,8 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
             "wind_speed": weather_data.get('wind_speed'),
             "station_name": weather_data.get('station_name'),
             "distance_km": weather_data.get('distance_km'),
-            "data_time": weather_data.get('data_time')
+            "data_time": weather_data.get('data_time'),
+            "rain_probability": weather_data.get('rain_probability', {})
         }
         
     except HTTPException:
@@ -277,15 +279,15 @@ if __name__ == "__main__":
     
     print("🌡️ AI 午餐推薦系統（整合流汗指數）啟動中...")
     print("📍 可用頁面：")
-    print("   • http://localhost:8000/ - 主頁面")
-    print("   • http://localhost:8000/sweat_index - 流汗指數查詢介面") 
-    print("   • http://localhost:8000/restaurant - 餐廳搜尋介面")
-    print("   • http://localhost:8000/weather_page - 天氣查詢介面")
+    print("   • http://localhost:5000/ - 主頁面")
+    print("   • http://localhost:5000/sweat_index - 流汗指數查詢介面") 
+    print("   • http://localhost:5000/restaurant - 餐廳搜尋介面")
+    print("   • http://localhost:5000/weather_page - 天氣查詢介面")
     print("📍 可用 API：")
-    print("   • http://localhost:8000/sweat-index?location=台北101 - 流汗指數查詢")
-    print("   • http://localhost:8000/weather_enhanced?location=花蓮市 - 增強版天氣查詢")
-    print("   • http://localhost:8000/health - 健康檢查")
+    print("   • http://localhost:5000/sweat-index?location=台北101 - 流汗指數查詢")
+    print("   • http://localhost:5000/weather_enhanced?location=花蓮市 - 增強版天氣查詢")
+    print("   • http://localhost:5000/health - 健康檢查")
     print()
     
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

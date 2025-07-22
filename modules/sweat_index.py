@@ -188,7 +188,7 @@ def get_real_weather_data(latitude: float, longitude: float) -> Dict:
             'parameterName': 'LAT,LON'
         }
         
-        response = requests.get(url, params=params, timeout=15)
+        response = requests.get(url, params=params, timeout=15, verify=False)
         response.raise_for_status()
         data = response.json()
         
@@ -204,6 +204,16 @@ def get_real_weather_data(latitude: float, longitude: float) -> Dict:
         
         if nearest_station:
             nearest_station['is_real_data'] = True
+            
+            # 加入降雨機率查詢
+            try:
+                from modules.weather import get_rain_probability_for_location
+                rain_prob = get_rain_probability_for_location(latitude, longitude, api_key)
+                nearest_station['rain_probability'] = rain_prob
+            except Exception as e:
+                print(f"獲取降雨機率失敗: {e}")
+                nearest_station['rain_probability'] = {"probability": "N/A", "source": "查詢失敗"}
+            
             return nearest_station
         else:
             return {
@@ -419,7 +429,9 @@ def query_sweat_index_by_location(location: str) -> Dict:
         
         # 檢查是否有錯誤
         if 'error' in weather_data:
-            print(f"❌ {weather_data['error']}: {weather_data['message']}")
+            error_msg = weather_data.get('error', '未知錯誤')
+            detail_msg = weather_data.get('message', weather_data.get('detail', ''))
+            print(f"❌ {error_msg}: {detail_msg}")
             return {
                 "error": "無法獲取真實天氣資料",
                 "details": weather_data,
@@ -443,9 +455,10 @@ def query_sweat_index_by_location(location: str) -> Dict:
         print(f"🌤️ 真實天氣資料: {temp}°C, {humidity}%, 風速 {wind_speed}m/s")
         print(f"📡 資料來源: {weather_data.get('station_name', '未知測站')}")
         
-        # 3. 計算流汗指數和建議
+        # 3. 計算流汗指數和建議 (傳入降雨資料)
+        rain_data = weather_data.get('rain_probability', {})
         recommendation = calculate_dining_recommendation(
-            temp, humidity, wind_speed, display_name
+            temp, humidity, wind_speed, display_name, rain_data
         )
         
         # 4. 添加原始天氣資料和座標
@@ -590,13 +603,14 @@ def get_comfort_level(sweat_index: float) -> Dict[str, str]:
             "advice": "強烈建議室內用餐，避免長時間戶外暴露"
         }
 
-def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: float = 0, location: str = "") -> Dict:
+def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: float = 0, location: str = "", rain_data: dict = None) -> Dict:
     """
     基於天氣條件計算用餐建議
     :param temp: 溫度 (攝氏度)
     :param humidity: 相對濕度 (%)
     :param wind_speed: 風速 (m/s)
     :param location: 地點名稱
+    :param rain_data: 降雨資料 (包含 probability 等)
     :return: 用餐建議資訊
     """
     try:
@@ -609,13 +623,23 @@ def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: fl
         # 獲取舒適度等級
         comfort = get_comfort_level(sweat_index)
         
-        # 生成用餐場所建議
-        if sweat_index <= 3:
+        # 分析降雨機率影響
+        rain_impact = analyze_rain_impact(rain_data) if rain_data else None
+        
+        # 生成用餐場所建議 (考慮降雨)
+        if rain_impact and rain_impact.get('high_probability', False):
+            venue_preference = "室內座位強烈建議"
+            venue_advice = f"預計降雨機率 {rain_impact.get('probability', 'N/A')}，強烈建議室內用餐"
+        elif sweat_index <= 3:
             venue_preference = "戶外座位優先"
             venue_advice = "推薦露天餐廳、陽台座位或庭園餐廳"
+            if rain_impact and rain_impact.get('moderate_probability', False):
+                venue_advice += f"（注意：降雨機率 {rain_impact.get('probability', 'N/A')}，建議選擇有遮蔽的戶外座位）"
         elif sweat_index <= 5:
             venue_preference = "戶外室內皆可"
             venue_advice = "可選擇有遮蔭的戶外座位或通風良好的室內"
+            if rain_impact and rain_impact.get('moderate_probability', False):
+                venue_advice += f"（降雨機率 {rain_impact.get('probability', 'N/A')}，建議偏向室內）"
         elif sweat_index <= 7:
             venue_preference = "室內座位建議"
             venue_advice = "建議室內用餐，如選擇戶外需有冷氣或風扇"
@@ -623,7 +647,7 @@ def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: fl
             venue_preference = "室內座位強烈建議"
             venue_advice = "強烈建議冷氣房用餐，避免戶外座位"
         
-        # 生成飲品建議
+        # 生成飲品建議 (考慮降雨)
         if sweat_index <= 3:
             drink_advice = "溫熱飲品或常溫飲料"
         elif sweat_index <= 6:
@@ -631,10 +655,18 @@ def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: fl
         else:
             drink_advice = "大量冰涼飲品，加強補水"
         
-        # 計算戶外舒適度評分 (0-10分，10分最舒適)
-        outdoor_comfort_score = max(0, 10 - sweat_index)
+        if rain_impact and rain_impact.get('high_probability', False):
+            drink_advice += "，建議準備雨具"
         
-        return {
+        # 計算戶外舒適度評分 (0-10分，考慮降雨)
+        outdoor_comfort_score = max(0, 10 - sweat_index)
+        if rain_impact:
+            if rain_impact.get('high_probability', False):
+                outdoor_comfort_score = max(0, outdoor_comfort_score - 4)
+            elif rain_impact.get('moderate_probability', False):
+                outdoor_comfort_score = max(0, outdoor_comfort_score - 2)
+        
+        result = {
             "location": location,
             "temperature": temp,
             "humidity": humidity,
@@ -649,12 +681,89 @@ def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: fl
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
+        # 添加降雨資訊
+        if rain_impact:
+            result["rain_info"] = rain_impact
+        
+        return result
+        
     except Exception as e:
         return {
             "error": f"計算用餐建議失敗: {e}",
             "location": location,
             "temperature": temp,
             "humidity": humidity
+        }
+
+def analyze_rain_impact(rain_data: dict) -> dict:
+    """
+    分析降雨機率對用餐的影響
+    :param rain_data: 降雨資料
+    :return: 降雨影響分析
+    """
+    try:
+        probability_str = rain_data.get('probability', 'N/A')
+        
+        if probability_str == 'N/A' or probability_str == '':
+            return {
+                "probability": 'N/A',
+                "level": "未知",
+                "impact": "無降雨資料",
+                "advice": "建議查看最新天氣預報"
+            }
+        
+        # 轉換百分比字串為數字
+        try:
+            if isinstance(probability_str, str) and '%' in probability_str:
+                probability = int(probability_str.replace('%', ''))
+            else:
+                probability = int(float(probability_str))
+        except (ValueError, TypeError):
+            return {
+                "probability": probability_str,
+                "level": "未知",
+                "impact": "降雨機率格式無法解析",
+                "advice": "建議查看最新天氣預報"
+            }
+        
+        # 判斷降雨機率等級
+        if probability >= 70:
+            return {
+                "probability": f"{probability}%",
+                "level": "高",
+                "impact": "很可能下雨",
+                "advice": "強烈建議室內用餐，準備雨具",
+                "high_probability": True
+            }
+        elif probability >= 40:
+            return {
+                "probability": f"{probability}%",
+                "level": "中等",
+                "impact": "可能會下雨",
+                "advice": "建議選擇有遮蔽的座位，攜帶雨具",
+                "moderate_probability": True
+            }
+        elif probability >= 20:
+            return {
+                "probability": f"{probability}%",
+                "level": "低",
+                "impact": "降雨機率較低",
+                "advice": "可安心戶外用餐，建議攜帶輕便雨具"
+            }
+        else:
+            return {
+                "probability": f"{probability}%",
+                "level": "極低",
+                "impact": "幾乎不會下雨",
+                "advice": "適合戶外活動"
+            }
+        
+    except Exception as e:
+        return {
+            "probability": 'N/A',
+            "level": "錯誤",
+            "impact": f"分析失敗: {e}",
+            "advice": "建議查看最新天氣預報"
         }
 
 def get_sweat_risk_alerts(temp: float, humidity: float, wind_speed: float = 0) -> list:
