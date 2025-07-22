@@ -10,7 +10,8 @@
 ### ✅ 已完成功能
 
 - **🌤️ 天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、降雨機率
-- **🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
+- **�️ 流汗指數計算**：基於溫度、濕度、風速計算體感溫度與流汗指數，提供用餐場所建議
+- **�🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
 - **🗺️ 智能地址解析**：支援詳細地址、地標名稱、Google Maps 短網址
 - **🔗 URL可靠性機制**：多層後備方案確保所有餐廳都有可用的Google Maps連結
 - **🤖 聊天機器人前端**：直觀的對話式餐廳搜尋介面
@@ -21,7 +22,6 @@
 
 以下功能可於未來版本中實作：
 
-- 空氣品質與流汗指數計算
 - 人潮推估與尖峰時段預測
 - 菜單 OCR 與結構化處理
 - 機器學習推薦排序引擎
@@ -63,7 +63,7 @@ ai-lunch-mind/
 │   └── restaurant.html           # ✅ 餐廳搜尋聊天機器人
 │
 ├── modules/                      # 功能模組
-│   ├── air_quality.py            # 🚧 空氣品質與流汗指數
+│   ├── sweat_index.py            # ✅ 流汗指數與體感溫度計算
 │   ├── crowd_estimation.py       # 🚧 人潮預測與分析
 │   ├── google_maps.py            # ✅ Selenium 餐廳搜尋系統
 │   ├── menu_extraction.py        # 🚧 菜單 OCR 與解析
@@ -77,8 +77,8 @@ ai-lunch-mind/
 │   └── requirements.txt          # Python 依賴清單
 │
 ├── 📄 專案文件
-│   ├── GOOGLE_MAPS_SETUP.md      # ✅ 餐廳搜尋模組使用指南
-│   ├── install_requirements_local.bat  # ✅ 本地開發依賴安裝
+│   ├── GOOGLE_MAPS_SETUP.md      # ✅ 餐廳搜尋模組使用指南  
+│   ├── DATABASE_MIGRATION_TODO.md # 🚧 資料庫遷移規劃
 │   └── README.md                 # 專案說明文件
 │
 ├── main.py                       # ✅ FastAPI 主程式
@@ -105,19 +105,19 @@ git clone <repository-url>
 cd ai-lunch-mind
 
 # 2. 設定環境變數
-echo "CWB_API_TOKEN=your_cwb_api_token_here" > .env
+echo "CWB_API_KEY=your_cwb_api_key_here" > .env
 
 # 3. 使用 Docker Compose 啟動
 docker-compose up --build
 
-# 服務將在 http://localhost:8000 啟動
+# 服務將在 http://localhost:5000 啟動
 ```
 
 ### 3. 本地開發安裝
 
 ```bash
 # 1. 建立 .env 檔案
-echo "CWB_API_TOKEN=your_cwb_api_token_here" > .env
+echo "CWB_API_KEY=your_cwb_api_key_here" > .env
 
 # 2. 安裝依賴
 # Windows:
@@ -139,8 +139,8 @@ docker build -t ai-lunch-mind .
 # 執行容器
 docker run -d \
   --name ai-lunch-mind \
-  -p 8000:8000 \
-  -e CWB_API_TOKEN=your_token_here \
+  -p 5000:5000 \
+  -e CWB_API_KEY=your_key_here \
   ai-lunch-mind
 
 # 使用 Docker Compose（推薦）
@@ -217,20 +217,21 @@ docker-compose down
 
 ```bash
 # 基本搜尋
-curl "http://localhost:8000/restaurants?keyword=火鍋&user_address=台北市中山區"
+curl "http://localhost:5000/restaurants?keyword=火鍋&user_address=台北市中山區"
 
 # 使用 Google Maps 短網址
-curl "http://localhost:8000/restaurants?keyword=羊肉&user_address=https://maps.app.goo.gl/qmnmsH1EwrYnYsCF6"
+curl "http://localhost:5000/restaurants?keyword=羊肉&user_address=https://maps.app.goo.gl/qmnmsH1EwrYnYsCF6"
 
 # 地標搜尋
-curl "http://localhost:8000/restaurants?keyword=燒烤&user_address=彰化大佛"
+curl "http://localhost:5000/restaurants?keyword=燒烤&user_address=彰化大佛"
 ```
 
 ### 前端介面
 
-- **首頁導覽**: `http://localhost:8000/`
-- **天氣聊天機器人**: `http://localhost:8000/static/weather.html`
-- **餐廳搜尋聊天機器人**: `http://localhost:8000/restaurant`
+- **首頁導覽**: `http://localhost:5000/`
+- **天氣聊天機器人**: `http://localhost:5000/weather.html`
+- **餐廳搜尋聊天機器人**: `http://localhost:5000/restaurant.html`
+- **流汗指數查詢**: `http://localhost:5000/sweat_index.html`
 
 ---
 
@@ -347,12 +348,14 @@ def get_location_weather(location_name: str) -> dict
 
 ### 待實作模組架構
 
-#### 1. 空氣品質模組 (`air_quality.py`)
+#### 1. 流汗指數模組 (`sweat_index.py`)
 
 ```python
-def calculate_air_quality_impact(pm25: float, location: str) -> dict
-def estimate_sweat_index(temp: float, humidity: float, wind_speed: float) -> float
-def get_pollution_alerts(latitude: float, longitude: float) -> list
+def estimate_sweat_index(temp: float, humidity: float, wind_speed: float = 0) -> float
+def calculate_heat_index(temp: float, humidity: float) -> float
+def get_comfort_level(sweat_index: float) -> dict
+def calculate_dining_recommendation(temp: float, humidity: float, wind_speed: float = 0, location: str = "") -> dict
+def get_sweat_risk_alerts(temp: float, humidity: float, wind_speed: float = 0) -> list
 ```
 
 #### 2. 人潮預測模組 (`crowd_estimation.py`)
@@ -393,7 +396,7 @@ def explain_recommendation(restaurant: dict, factors: dict) -> str
 
 ### 中期目標 (1-2 個月)
 
-- [ ] 整合空氣品質與人潮預測
+- [ ] 整合流汗指數與人潮預測功能
 - [ ] 實作菜單 OCR 功能
 - [ ] 加入使用者偏好學習
 - [ ] 建立餐廳評分推薦演算法
@@ -496,4 +499,4 @@ Email: [您的 Email]
 
 ---
 
-> 最後更新：2025年7月 | 主要功能：✅ Selenium 餐廳搜尋系統已完成 | ✅ URL可靠性機制已實現
+> 最後更新：2025年7月 | 主要功能：✅ Selenium 餐廳搜尋系統已完成 | ✅ URL可靠性機制已實現 | ✅ 流汗指數模組已完成

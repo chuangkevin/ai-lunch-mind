@@ -23,13 +23,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 複製應用程式碼
 COPY . .
 
-# 暴露端口
-EXPOSE 8000
+
+# 暴露端口（Flask 預設 5000）
+EXPOSE 5000
 
 # 設定環境變數（確保 Chrome 在容器中正常運行）
 ENV DISPLAY=:99
 ENV CHROME_BIN=/usr/bin/google-chrome
 ENV CHROME_PATH=/usr/bin/google-chrome
 
-# 啟動應用
-CMD ["python", "main.py"]
+# 啟動流汗指數查詢伺服器
+CMD ["python", "sweat_index_server.py"]

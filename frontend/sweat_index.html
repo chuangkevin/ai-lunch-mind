@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>流汗指數查詢系統</title>
+  <style>
+    body { background: linear-gradient(120deg, #fff3e0 0%, #ffe8cc 100%); margin: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+    .chat-container { max-width: 480px; margin: 40px auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px #0002; padding: 0; display: flex; flex-direction: column; height: 85vh; }
+    .chat-header { padding: 1.2em 1.5em; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: #fff; border-radius: 16px 16px 0 0; font-size: 1.3em; font-weight: bold; letter-spacing: 1px; text-align: center; }
+    .chat-subtitle { padding: 0 1.5em 1em; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: #fff; font-size: 0.9em; opacity: 0.9; text-align: center; border-radius: 0 0 16px 16px; margin-bottom: 1em; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 0 1.5em 1.5em; display: flex; flex-direction: column; gap: 1.2em; }
+    .msg { max-width: 85%; padding: 1em 1.2em; border-radius: 16px; font-size: 1.05em; line-height: 1.6; }
+    .msg.user { align-self: flex-end; background: #fff3e0; color: #e65100; border-bottom-right-radius: 4px; }
+    .msg.bot { align-self: flex-start; background: #fff8f0; color: #222; border-bottom-left-radius: 4px; box-shadow: 0 2px 8px #0001; }
+    
+    /* 流汗指數卡片樣式 */
+    .sweat-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.2em; margin: 0.8em 0; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .location-header { font-weight: bold; color: #ff9800; font-size: 1.2em; margin-bottom: 0.8em; display: flex; align-items: center; gap: 0.5em; }
+    .weather-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8em; margin: 0.8em 0; }
+    .weather-item { background: #f8f9ff; border-radius: 8px; padding: 0.8em; text-align: center; }
+    .weather-label { font-size: 0.85em; color: #666; margin-bottom: 0.3em; }
+    .weather-value { font-weight: bold; font-size: 1.1em; color: #333; }
+    .temperature { color: #ff5722; }
+    .humidity { color: #2196f3; }
+    .wind { color: #4caf50; }
+    .heat-index { color: #ff9800; }
+    
+    /* 流汗指數顯示 */
+    .sweat-index-display { text-align: center; margin: 1em 0; padding: 1em; background: linear-gradient(135deg, #fff3e0 0%, #ffe8cc 100%); border-radius: 12px; }
+    .sweat-index-title { font-size: 0.9em; color: #666; margin-bottom: 0.5em; }
+    .sweat-index-value { font-size: 2.5em; font-weight: bold; margin: 0.2em 0; }
+    .sweat-index-level { font-size: 1.1em; font-weight: bold; margin: 0.3em 0; }
+    .sweat-index-desc { font-size: 0.9em; color: #666; }
+    
+    /* 舒適度等級顏色 */
+    .comfort-green { color: #4caf50; }
+    .comfort-lightgreen { color: #8bc34a; }
+    .comfort-yellow { color: #ffc107; }
+    .comfort-orange { color: #ff9800; }
+    .comfort-red { color: #f44336; }
+    
+    /* 建議區塊 */
+    .advice-section { margin: 1em 0; }
+    .advice-title { font-weight: bold; color: #ff9800; margin-bottom: 0.5em; }
+    .advice-content { background: #f8f9ff; border-radius: 8px; padding: 0.8em; font-size: 0.95em; line-height: 1.5; }
+    
+    /* 警報樣式 */
+    .alert { border-radius: 8px; padding: 0.8em; margin: 0.5em 0; font-size: 0.9em; }
+    .alert-warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
+    .alert-danger { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+    .alert-success { background: #d1eddb; border: 1px solid #c3e6cb; color: #155724; }
+    
+    /* 輸入區域 */
+    .chat-input-area { display: flex; padding: 1.2em; border-top: 1px solid #e5e7eb; background: #f7fafc; border-radius: 0 0 16px 16px; }
+    .chat-input { flex: 1; padding: 0.8em 1em; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1em; outline: none; }
+    .chat-send { margin-left: 0.8em; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: #fff; border: none; border-radius: 8px; padding: 0.8em 1.5em; font-size: 1em; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .chat-send:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3); }
+    
+    /* 載入動畫 */
+    .loading { text-align: center; color: #666; font-style: italic; }
+    .loading::after { content: ''; animation: dots 1.5s steps(5, end) infinite; }
+    @keyframes dots {
+      0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); }
+      40% { color: #666; text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); }
+      60% { text-shadow: .25em 0 0 #666, .5em 0 0 rgba(0,0,0,0); }
+      80%, 100% { text-shadow: .25em 0 0 #666, .5em 0 0 #666; }
+    }
+    
+    @media (max-width: 600px) {
+      .chat-container { max-width: 100vw; height: 100vh; border-radius: 0; margin: 0; }
+      .chat-header, .chat-messages, .chat-input-area { padding-left: 1em; padding-right: 1em; }
+      .weather-grid { grid-template-columns: 1fr; }
+      .sweat-index-value { font-size: 2em; }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">🌡️ 流汗指數查詢系統</div>
+    <div class="chat-subtitle">輸入地點查詢即時天氣和流汗指數，規劃舒適的用餐體驗！</div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg bot">
+        您好！我是流汗指數查詢助手 🌡️<br><br>
+        請輸入地點來查詢：<br>
+        🌤️ <strong>即時天氣資訊</strong><br>
+        💧 <strong>流汗指數分析</strong><br>
+        🍽️ <strong>用餐場所建議</strong><br><br>
+        支援格式：<br>
+        • 地標名稱：台北101、士林夜市<br>
+        • 地址：台北市中山區<br>
+        • 經緯度：25.0478,121.5170<br><br>
+        💡 根據體感溫度和濕度科學計算，幫您選擇最舒適的用餐環境！
+      </div>
+    </div>
+    <form class="chat-input-area" onsubmit="querySweatIndex(event)">
+      <input class="chat-input" id="location-input" type="text" placeholder="請輸入地點、地址或經緯度..." autocomplete="off" />
+      <button class="chat-send" type="submit">🔍 查詢</button>
+    </form>
+  </div>
+
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const locationInput = document.getElementById('location-input');
+
+    function appendMsg(content, sender) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + sender;
+      div.innerHTML = content;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return div;
+    }
+
+    function getComfortClass(comfortLevel) {
+      const colorMap = {
+        'green': 'comfort-green',
+        'lightgreen': 'comfort-lightgreen', 
+        'yellow': 'comfort-yellow',
+        'orange': 'comfort-orange',
+        'red': 'comfort-red'
+      };
+      return colorMap[comfortLevel] || 'comfort-yellow';
+    }
+
+    function formatSweatIndexResult(data) {
+      let html = `<div class="sweat-card">`;
+      
+      // 地點標題
+      html += `<div class="location-header">`;
+      html += `📍 ${data.location || '查詢地點'}`;
+      html += `</div>`;
+      
+      // 天氣資訊網格
+      html += `<div class="weather-grid">`;
+      html += `<div class="weather-item">`;
+      html += `<div class="weather-label">溫度</div>`;
+      html += `<div class="weather-value temperature">${data.temperature}°C</div>`;
+      html += `</div>`;
+      html += `<div class="weather-item">`;
+      html += `<div class="weather-label">濕度</div>`;
+      html += `<div class="weather-value humidity">${data.humidity}%</div>`;
+      html += `</div>`;
+      if (data.wind_speed !== undefined) {
+        html += `<div class="weather-item">`;
+        html += `<div class="weather-label">風速</div>`;
+        html += `<div class="weather-value wind">${data.wind_speed} m/s</div>`;
+        html += `</div>`;
+      }
+      if (data.heat_index !== undefined) {
+        html += `<div class="weather-item">`;
+        html += `<div class="weather-label">體感溫度</div>`;
+        html += `<div class="weather-value heat-index">${data.heat_index}°C</div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+      
+      // 流汗指數顯示
+      const comfortClass = getComfortClass(data.comfort_level?.color);
+      html += `<div class="sweat-index-display">`;
+      html += `<div class="sweat-index-title">流汗指數</div>`;
+      html += `<div class="sweat-index-value ${comfortClass}">${data.sweat_index}<span style="font-size:0.6em">/10</span></div>`;
+      html += `<div class="sweat-index-level ${comfortClass}">${data.comfort_level?.level || '普通'}</div>`;
+      html += `<div class="sweat-index-desc">${data.comfort_level?.description || ''}</div>`;
+      html += `</div>`;
+      
+      // 用餐建議
+      if (data.venue_advice || data.drink_advice) {
+        html += `<div class="advice-section">`;
+        if (data.venue_preference) {
+          html += `<div class="advice-title">🍽️ 用餐場所建議</div>`;
+          html += `<div class="advice-content">`;
+          html += `<strong>${data.venue_preference}</strong><br>`;
+          html += `${data.venue_advice}`;
+          html += `</div>`;
+        }
+        if (data.drink_advice) {
+          html += `<div class="advice-title" style="margin-top:1em">🥤 飲品建議</div>`;
+          html += `<div class="advice-content">${data.drink_advice}</div>`;
+        }
+        html += `</div>`;
+      }
+      
+      // 戶外舒適度評分
+      if (data.outdoor_comfort_score !== undefined) {
+        html += `<div class="advice-section">`;
+        html += `<div class="advice-title">🌞 戶外舒適度</div>`;
+        html += `<div class="advice-content">`;
+        html += `評分：<strong>${data.outdoor_comfort_score}/10</strong> `;
+        if (data.outdoor_comfort_score >= 7) {
+          html += `<span class="comfort-green">非常適合戶外活動</span>`;
+        } else if (data.outdoor_comfort_score >= 5) {
+          html += `<span class="comfort-yellow">適度戶外活動</span>`;
+        } else {
+          html += `<span class="comfort-orange">建議室內活動</span>`;
+        }
+        html += `</div>`;
+        html += `</div>`;
+      }
+      
+      // 資料來源
+      if (data.weather_source?.station_name) {
+        html += `<div style="margin-top:1em; font-size:0.85em; color:#666; text-align:center;">`;
+        html += `📡 資料來源：${data.weather_source.station_name}`;
+        if (data.weather_source.distance_km !== undefined) {
+          html += ` (距離 ${data.weather_source.distance_km.toFixed(1)} 公里)`;
+        }
+        if (data.weather_source.data_time) {
+          const time = new Date(data.weather_source.data_time).toLocaleString('zh-TW');
+          html += `<br>🕒 觀測時間：${time}`;
+        }
+        html += `</div>`;
+      }
+      
+      html += `</div>`;
+      return html;
+    }
+
+    function formatAlerts(alerts) {
+      if (!alerts || alerts.length === 0) return '';
+      
+      let html = `<div style="margin-top: 0.8em;">`;
+      alerts.forEach(alert => {
+        let alertClass = 'alert-success';
+        if (alert.level === '警告') alertClass = 'alert-warning';
+        if (alert.level === '嚴重') alertClass = 'alert-danger';
+        
+        html += `<div class="alert ${alertClass}">`;
+        html += `<strong>${alert.type}</strong>: ${alert.message}`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+      return html;
+    }
+
+    async function querySweatIndex(e) {
+      e.preventDefault();
+      const location = locationInput.value.trim();
+      
+      if (!location) {
+        appendMsg('❌ 請輸入地點！', 'bot');
+        return;
+      }
+      
+      // 顯示使用者輸入
+      appendMsg(`📍 ${location}`, 'user');
+      
+      // 顯示載入訊息
+      const loadingMsg = appendMsg('🌡️ 正在查詢天氣資料和計算流汗指數<span class="loading">...</span>', 'bot');
+      
+      try {
+        // 調用流汗指數查詢 API
+        const response = await fetch(`/sweat-index?location=${encodeURIComponent(location)}`);
+        
+        if (!response.ok) {
+          throw new Error(`API 請求失敗 (${response.status})`);
+        }
+        
+        const data = await response.json();
+        
+        // 移除載入訊息
+        loadingMsg.remove();
+        
+        // 檢查是否有錯誤
+        if (data.error) {
+          let errorMsg = `❌ 查詢失敗：${data.error}`;
+          if (data.details?.message) {
+            errorMsg += `<br><br>詳細訊息：${data.details.message}`;
+          }
+          if (data.details?.error === "中央氣象署 API 金鑰未設置") {
+            errorMsg += `<br><br>💡 請確認已設置 CWB_API_KEY 環境變數`;
+          }
+          appendMsg(errorMsg, 'bot');
+          return;
+        }
+        
+        // 顯示流汗指數結果
+        let resultMsg = formatSweatIndexResult(data);
+        
+        // 添加風險警報（如果有的話）
+        if (data.temperature !== undefined && data.humidity !== undefined) {
+          // 這裡可以調用警報 API 或在前端計算
+          // 為了簡化，直接根據數值顯示警報
+          const alerts = [];
+          if (data.temperature >= 35) {
+            alerts.push({type: '高溫警報', level: '嚴重', message: `氣溫 ${data.temperature}°C，極端高溫，避免戶外活動`});
+          } else if (data.temperature >= 32) {
+            alerts.push({type: '高溫警報', level: '警告', message: `氣溫 ${data.temperature}°C，高溫炎熱，戶外活動需防曬`});
+          }
+          
+          if (data.sweat_index >= 8) {
+            alerts.push({type: '流汗指數警報', level: '嚴重', message: `流汗指數 ${data.sweat_index}/10，極易大量流汗，建議室內活動`});
+          } else if (data.sweat_index >= 6) {
+            alerts.push({type: '流汗指數警報', level: '警告', message: `流汗指數 ${data.sweat_index}/10，容易流汗，注意補水`});
+          }
+          
+          if (data.humidity >= 85) {
+            alerts.push({type: '濕度警報', level: '警告', message: `相對濕度 ${data.humidity}%，悶熱潮濕，體感溫度較高`});
+          }
+          
+          if (alerts.length === 0) {
+            alerts.push({type: '正常', level: '良好', message: `天氣舒適，流汗指數 ${data.sweat_index}/10，適合戶外活動`});
+          }
+          
+          resultMsg += formatAlerts(alerts);
+        }
+        
+        appendMsg(resultMsg, 'bot');
+        
+        // 清空輸入框
+        locationInput.value = '';
+        
+      } catch (error) {
+        console.error('查詢錯誤:', error);
+        loadingMsg.innerHTML = `❌ 查詢失敗：${error.message}<br><br>請檢查：<br>• 網路連線是否正常<br>• 後端伺服器是否啟動<br>• 地點名稱是否正確`;
+      }
+    }
+
+    // 頁面載入完成後聚焦到輸入框
+    window.onload = function() {
+      locationInput.focus();
+    };
+  </script>
+</body>
+</html>

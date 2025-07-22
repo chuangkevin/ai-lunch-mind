@@ -66,10 +66,10 @@
       appendMsg('查詢中...', 'bot');
       let url = '';
       if (parsed.latitude && parsed.longitude) {
-        url = `/weather?latitude=${parsed.latitude}&longitude=${parsed.longitude}`;
+        url = `http://localhost:5000/weather?latitude=${parsed.latitude}&longitude=${parsed.longitude}`;
       } else if (parsed.location) {
         // 這裡假設 API 支援 /weather?location=地名
-        url = `/weather?location=${encodeURIComponent(parsed.location)}`;
+        url = `http://localhost:5000/weather?location=${encodeURIComponent(parsed.location)}`;
       }
       try {
         const resp = await fetch(url);

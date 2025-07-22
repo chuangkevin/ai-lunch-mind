@@ -31,6 +31,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# TODO: 將 User-Agent 清單改用資料庫存儲 (如 SQLite)
+# 建議資料表：user_agents (id, agent_string, browser_type, active_status, last_used)
+# 優點：支援動態更新、使用頻率追蹤、失效檢測、瀏覽器類型分類
 # User-Agent 池，用於降低被偵測機率
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

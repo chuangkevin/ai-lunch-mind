@@ -1,3 +1,9 @@
+# TODO: 將台灣地點清單改用資料庫存儲 (如 SQLite)
+# 建議資料表結構：
+# - locations: id, name, city, county, latitude, longitude, type, created_at, updated_at
+# - location_aliases: location_id, alias_name (支援地點別名)
+# - location_types: id, type_name (景點分類：車站、夜市、古蹟等)
+# 優點：支援動態新增、批量更新、地點分類管理、歷史版本追蹤
 # 台灣主要地點經緯度清單（部分示例，後續可擴充）
 # 格式：{"地名": (縣市, 緯度, 經度)}
 locations = [
