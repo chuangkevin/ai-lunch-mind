@@ -12,6 +12,7 @@
 - **🌤️ 天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、降雨機率
 - **🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
 - **🗺️ 智能地址解析**：支援詳細地址、地標名稱、Google Maps 短網址
+- **🔗 URL可靠性機制**：多層後備方案確保所有餐廳都有可用的Google Maps連結
 - **🤖 聊天機器人前端**：直觀的對話式餐廳搜尋介面
 - **🚀 FastAPI 後端**：高性能 REST API 與即時餐廳搜尋
 - **📍 距離計算**：自動計算餐廳與目標位置的距離
@@ -42,6 +43,10 @@
 
 - **Selenium 自動化**：使用真實瀏覽器避免反爬蟲機制
 - **多策略搜尋**：結合多種 CSS 選擇器確保高成功率
+- **URL可靠性保障**：三層後備機制確保每個餐廳都有可用連結
+  - 第一層：系統提取的原始餐廳place連結
+  - 第二層：固定格式搜尋連結（餐廳名稱+地址）
+  - 第三層：純餐廳名稱搜尋連結
 - **距離計算**：自動計算餐廳與目標位置的直線距離
 - **結果過濾**：智能過濾非餐廳相關結果
 
@@ -196,10 +201,10 @@ docker-compose down
     {
       "name": "阿宗麵線",
       "address": "台北市中正區峨嵋街8-1號",
-      "maps_url": "https://maps.google.com/maps/place/...",
+      "maps_url": "https://maps.google.com/maps/place/阿宗麵線/data=...",
       "rating": 4.2,
       "distance_km": 1.5,
-      "price_level": null
+      "price_level": "$1-200"
     }
   ],
   "total": 8,
@@ -304,6 +309,10 @@ search_restaurants(
 ### 技術特色
 
 - **智能 URL 解析**：自動展開 Google Maps 短網址並提取座標
+- **URL可靠性機制**：三層後備系統確保所有餐廳連結始終可用
+  - 原始餐廳place連結：優先使用系統抓取的真實餐廳頁面連結
+  - 固定格式後備連結：使用餐廳名稱+地址的搜尋連結
+  - 純名稱搜尋連結：最終後備方案使用餐廳名稱搜尋
 - **多層級地址支援**：從精確地址到模糊區域都能處理
 - **距離計算**：自動計算並排序最近的餐廳
 - **反反爬蟲**：使用 Selenium 模擬真實瀏覽器行為
@@ -322,6 +331,11 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
 def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = None, max_results: int = 10) -> List[Dict[str, Any]]
 def extract_location_from_url(url: str) -> Optional[Tuple[float, float, str]]
 def calculate_distance(user_coords: Tuple[float, float], restaurant_coords: Tuple[float, float]) -> float
+
+# 🆕 URL可靠性機制
+def generate_fallback_maps_url(restaurant_name: str, address: str = "") -> str
+def validate_maps_url(url: str) -> bool  
+def get_reliable_maps_url(restaurant_info: dict) -> str
 ```
 
 #### 2. 天氣查詢模組 (`weather.py`)
@@ -375,6 +389,7 @@ def explain_recommendation(restaurant: dict, factors: dict) -> str
 - [x] 實作多格式地址解析功能
 - [x] 建立聊天機器人餐廳搜尋介面
 - [x] 整合距離計算與排序功能
+- [x] 實現URL可靠性機制與固定pattern後備方案
 
 ### 中期目標 (1-2 個月)
 
@@ -447,10 +462,10 @@ results = search_restaurants(
     {
         'name': '阿宗麵線',
         'address': '台北市中正區峨嵋街8-1號',
-        'maps_url': 'https://maps.google.com/maps/place/...',
+        'maps_url': 'https://maps.google.com/maps/place/阿宗麵線/data=...',
         'rating': 4.2,
         'distance_km': 1.5,
-        'price_level': None
+        'price_level': '$1-200'
     }
 ]
 ```
@@ -481,4 +496,4 @@ Email: [您的 Email]
 
 ---
 
-> 最後更新：2025年7月 | 主要功能：✅ Selenium 餐廳搜尋系統已完成
+> 最後更新：2025年7月 | 主要功能：✅ Selenium 餐廳搜尋系統已完成 | ✅ URL可靠性機制已實現
