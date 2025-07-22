@@ -80,10 +80,25 @@
           return;
         }
         let html = '<b>天氣資訊：</b><br>';
-        if (data.temperature !== undefined) html += `溫度：${data.temperature}°C<br>`;
-        if (data.humidity !== undefined) html += `濕度：${data.humidity}%<br>`;
-        if (data.pop !== undefined) html += `降雨機率：${data.pop}%<br>`;
-        if (data.locationName) html += `地點：${data.locationName}<br>`;
+        if (data.location) html += `📍 地點：${data.location}<br>`;
+        if (data.temperature !== undefined) html += `🌡️ 溫度：${data.temperature}°C<br>`;
+        if (data.humidity !== undefined) html += `💧 濕度：${data.humidity}%<br>`;
+        if (data.wind_speed !== undefined) html += `🌬️ 風速：${data.wind_speed} m/s<br>`;
+        
+        // 顯示降雨機率資訊
+        if (data.rain_probability) {
+          const rainInfo = data.rain_probability;
+          html += `🌧️ 降雨機率：${rainInfo.probability || 'N/A'}`;
+          if (rainInfo.source) html += ` (${rainInfo.source})`;
+          html += '<br>';
+        } else if (data.pop !== undefined) {
+          html += `🌧️ 降雨機率：${data.pop}%<br>`;
+        }
+        
+        if (data.station_name) html += `📡 觀測站：${data.station_name}`;
+        if (data.distance_km !== undefined) html += ` (距離 ${data.distance_km}km)`;
+        if (data.station_name || data.distance_km !== undefined) html += '<br>';
+        if (data.data_time) html += `🕒 觀測時間：${new Date(data.data_time).toLocaleString('zh-TW')}<br>`;
         chatMessages.lastChild.innerHTML = html;
       } catch (e) {
         chatMessages.lastChild.innerHTML = `<span style='color:#c00'>查詢失敗：${e.message}</span>`;

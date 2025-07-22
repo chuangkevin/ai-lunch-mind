@@ -153,6 +153,13 @@
         html += `<div class="weather-value heat-index">${data.heat_index}°C</div>`;
         html += `</div>`;
       }
+      // 添加降雨機率顯示
+      if (data.rain_info && data.rain_info.probability !== 'N/A') {
+        html += `<div class="weather-item">`;
+        html += `<div class="weather-label">降雨機率</div>`;
+        html += `<div class="weather-value" style="color: #2196f3;">${data.rain_info.probability}</div>`;
+        html += `</div>`;
+      }
       html += `</div>`;
       
       // 流汗指數顯示
@@ -296,6 +303,18 @@
           
           if (data.humidity >= 85) {
             alerts.push({type: '濕度警報', level: '警告', message: `相對濕度 ${data.humidity}%，悶熱潮濕，體感溫度較高`});
+          }
+          
+          // 添加降雨警報
+          if (data.rain_info) {
+            const rainInfo = data.rain_info;
+            if (rainInfo.high_probability) {
+              alerts.push({type: '降雨警報', level: '嚴重', message: `降雨機率 ${rainInfo.probability}，${rainInfo.impact}，${rainInfo.advice}`});
+            } else if (rainInfo.moderate_probability) {
+              alerts.push({type: '降雨提醒', level: '警告', message: `降雨機率 ${rainInfo.probability}，${rainInfo.impact}，${rainInfo.advice}`});
+            } else if (rainInfo.probability !== 'N/A') {
+              alerts.push({type: '降雨資訊', level: '良好', message: `降雨機率 ${rainInfo.probability}，${rainInfo.impact}`});
+            }
           }
           
           if (alerts.length === 0) {
