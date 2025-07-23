@@ -1,18 +1,53 @@
-# 午餐吃什麼 🍱 ### ✅ 已完成功能
+# 午餐吃什麼 🍱 - AI 智能推薦系統
 
-- **🌤️ 天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、**降雨機率**
-- **🌧️ 流汗指數計算**：基於溫度、濕度、風速計算體感溫度與流汗指數，**包含降雨影響分析**
-- **🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
-- **🗺️ 智能地址解析**：支援詳細地址、地標名稱、Google Maps 短網址
-- **🔗 URL可靠性機制**：多層後備方案確保所有餐廳都有可用的Google Maps連結
-- **🤖 聊天機器人前端**：直觀的對話式餐廳搜尋介面
-- **🚀 FastAPI 後端**：高性能 REST API 與即時餐廳搜尋
-- **📍 距離計算**：自動計算餐廳與目標位置的距離查詢系統**：整合中央氣象署 API，提供溫度、濕度、**降雨機率**
-- **🌧️ 流汗指數計算**：基於溫度、濕度、風速計算體感溫度與流汗指數，提供用餐場所建議
-- **🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊I 餐廳推薦系統
+## ✅ AI 午餐推薦主功能
 
-> 智能餐廳搜尋系統：整合天氣查詢、Google Maps 餐廳搜尋與 Selenium 自動化技術，提供精準的用餐推薦。  
-> ✅ **Selenium 爬蟲**｜✅ **Google Maps 整合**｜✅ **智能地址解析**｜✅ **聊天機器人介面**
+> **🤖 對話式智能推薦**：整合 ChatGPT 語意分析、天氣查詢、流汗指數計算與 Google Maps 餐廳搜尋，提供最適合的用餐建議。
+
+### 🧠 智能推薦特色
+
+- **🤖 ChatGPT 語意分析**：使用 GPT-4o-mini 深度理解用戶需求，區分地址、店名、食物類型
+- **🎯 智能關鍵字擴展**：東山鴨頭 → [鴨頭, 滷味, 小吃]，鹽酥雞 → [鹽酥雞, 炸物, 小吃]
+- **🌤️ 天氣感知推薦**：根據溫度、濕度、降雨機率調整餐點類型
+- **😅 流汗指數優化**：依據流汗指數動態調整搜尋範圍（500m-3000m）
+- **🗣️ 自然語言理解**：支援對話式需求分析與位置解析
+- **📊 距離優先排序**：智能餐廳評分（距離優先、評分、天氣適應性、價格）
+- **🌧️ 降雨警示整合**：自動提供雨具攜帶建議
+- **🔥❄️ 餐點溫度分類**：智能過濾不適合的餐點類型（熱食/冷食/中性）
+
+### 🎯 推薦規則設計
+
+#### 📍 動態搜尋範圍
+- **流汗指數 ≥ 8**：極不舒適 → **500m 內**
+- **流汗指數 6-7**：不舒適 → **1000m 內** 
+- **流汗指數 4-5**：普通 → **2000m 內**
+- **流汗指數 ≤ 3**：舒適 → **3000m 內**
+
+#### �️ 餐點類型智能過濾
+- **高溫天氣（流汗指數≥7 或 溫度≥32°C）**：降低熱食推薦，提升冷食權重
+- **舒適天氣（流汗指數≤3 或 溫度≤20°C）**：提升熱食推薦
+- **降雨機率高**：優先推薦室內用餐環境
+
+### 🗣️ 對話互動方式
+
+#### 1️⃣ 位置 + 需求型
+```
+"我在台北101，想吃火鍋"
+"信義區附近有什麼冰品店？"
+"西門町的燒烤店推薦"
+```
+
+#### 2️⃣ 地址精確型
+```
+"台北市中山區南京東路的日式料理"
+"新北市板橋區的義大利麵餐廳"
+```
+
+#### 3️⃣ 地標模糊型
+```
+"台北車站附近想吃拉麵"
+"淡水老街的小吃推薦"
+```
 
 ---
 
@@ -20,9 +55,18 @@
 
 ### ✅ 已完成功能
 
-- **🌤️ 天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、降雨機率
-- **�️ 流汗指數計算**：基於溫度、濕度、風速計算體感溫度與流汗指數，提供用餐場所建議
-- **�🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
+- **🤖 AI 智能推薦引擎**：對話式需求分析與智能餐廳推薦
+  - **🧠 ChatGPT 語意分析**：使用 GPT-4o-mini 深度理解「龜山區東山鴨頭」等複雜查詢
+  - **🎯 智能關鍵字映射**：東山鴨頭→[鴨頭,滷味,小吃]、牛肉麵→[牛肉麵,麵食]
+  - **📊 距離優先排序**：近距離餐廳優先推薦，雙重距離計算機制
+  - **🔄 多層次備用機制**：ChatGPT→關鍵字檢測→時間推薦→天氣推薦
+  - **💬 位置記憶邏輯**：系統會記住使用者位置，支援位置更新提示
+  - **🗣️ 初始引導機制**：首次使用時主動詢問位置，提供多種輸入方式  
+  - **📱 Shift+Enter 支援**：對話框支援多行輸入，提升使用體驗
+  - **🔗 Google Maps 新格式**：支援最新的 Google Maps 分享網址解析
+- **🌤️ 天氣查詢系統**：整合中央氣象署 API，提供溫度、濕度、**降雨機率**
+- **🌧️ 流汗指數計算**：基於溫度、濕度、風速計算體感溫度與流汗指數，**包含降雨影響分析**
+- **🍽️ 餐廳搜尋系統**：使用 Selenium 自動化搜尋 Google Maps 餐廳資訊
 - **🗺️ 智能地址解析**：支援詳細地址、地標名稱、Google Maps 短網址
 - **🔗 URL可靠性機制**：多層後備方案確保所有餐廳都有可用的Google Maps連結
 - **🤖 聊天機器人前端**：直觀的對話式餐廳搜尋介面
@@ -66,21 +110,23 @@
 ## 📁 專案結構
 
 ```plaintext
-```plaintext
 ai-lunch-mind/
 ├── frontend/                     # 前端介面
 │   ├── index.html                # 首頁導覽
+│   ├── ai_lunch.html             # ✅ AI 午餐推薦聊天機器人
 │   ├── weather.html              # 天氣查詢聊天機器人
 │   └── restaurant.html           # ✅ 餐廳搜尋聊天機器人
 │
 ├── modules/                      # 功能模組
+│   ├── ai_recommendation_engine.py # ✅ AI 智能推薦引擎
+│   ├── dialog_analysis.py        # ✅ ChatGPT 對話語意分析
 │   ├── sweat_index.py            # ✅ 流汗指數與體感溫度計算
-│   ├── crowd_estimation.py       # 🚧 人潮預測與分析
 │   ├── google_maps.py            # ✅ Selenium 餐廳搜尋系統
-│   ├── menu_extraction.py        # 🚧 菜單 OCR 與解析
-│   ├── recommendation_engine.py  # 🚧 推薦排序引擎
+│   ├── weather.py                # ✅ 中央氣象署天氣 API
 │   ├── taiwan_locations.py       # ✅ 台灣測試地點資料
-│   └── weather.py                # ✅ 中央氣象署天氣 API
+│   ├── crowd_estimation.py       # 🚧 人潮預測與分析
+│   ├── menu_extraction.py        # 🚧 菜單 OCR 與解析
+│   └── recommendation_engine.py  # 🚧 推薦排序引擎
 │
 ├── 🐳 容器化檔案
 │   ├── Dockerfile                # Docker 映像建構檔
@@ -88,12 +134,13 @@ ai-lunch-mind/
 │   └── requirements.txt          # Python 依賴清單
 │
 ├── 📄 專案文件
+│   ├── doc/需求文件.md            # ✅ 專案需求與功能規格
 │   ├── GOOGLE_MAPS_SETUP.md      # ✅ 餐廳搜尋模組使用指南  
 │   ├── DATABASE_MIGRATION_TODO.md # 🚧 資料庫遷移規劃
 │   └── README.md                 # 專案說明文件
 │
 ├── main.py                       # ✅ FastAPI 主程式
-├── .env                          # API 金鑰設定
+├── .env                          # API 金鑰設定 (需要 OPENAI_API_KEY)
 ├── .dockerignore                 # Docker 忽略檔案
 └── .gitignore                    # Git 忽略檔案設定
 ```
@@ -106,7 +153,9 @@ ai-lunch-mind/
 
 - **本地開發**：Python 3.8+、Chrome 瀏覽器
 - **容器化部署**：Docker 和 Docker Compose
-- 中央氣象署 Open Data API Token
+- **API 金鑰需求**：
+  - 中央氣象署 Open Data API Token
+  - OpenAI API Key (用於 ChatGPT 語意分析)
 
 ### 2. 快速啟動（容器化）🐳
 
@@ -117,6 +166,7 @@ cd ai-lunch-mind
 
 # 2. 設定環境變數
 echo "CWB_API_KEY=your_cwb_api_key_here" > .env
+echo "OPENAI_API_KEY=your_openai_api_key_here" >> .env
 
 # 3. 使用 Docker Compose 啟動
 docker-compose up --build
@@ -129,6 +179,7 @@ docker-compose up --build
 ```bash
 # 1. 建立 .env 檔案
 echo "CWB_API_KEY=your_cwb_api_key_here" > .env
+echo "OPENAI_API_KEY=your_openai_api_key_here" >> .env
 
 # 2. 安裝依賴
 # Windows:
@@ -167,6 +218,37 @@ docker-compose down
 ---
 
 ## 📡 API 端點
+
+### AI 聊天推薦 API
+
+**GET** `/chat-recommendation`
+
+使用 ChatGPT 進行智能語意分析並推薦餐廳
+
+#### 參數
+
+- `message` (string): 用戶輸入訊息（如：「龜山區東山鴨頭」、「我在西門町找燒烤」）
+- `phase` (string): 執行階段（"start" 生成搜尋計劃，"search" 執行搜尋）
+
+#### 回應範例
+
+```json
+{
+  "success": true,
+  "location": "龜山區",
+  "search_keywords": ["鴨頭", "滷味", "小吃"],
+  "restaurants": [
+    {
+      "name": "大可 東山丫頭",
+      "address": "333桃園市龜山區復興一路102號",
+      "distance_km": 18.62,
+      "rating": 4.5,
+      "food_type": "小吃"
+    }
+  ],
+  "recommendation_summary": "根據目前天氣狀況，為您推薦6家餐廳..."
+}
+```
 
 ### 天氣查詢 API
 
@@ -510,4 +592,4 @@ Email: [您的 Email]
 
 ---
 
-> 最後更新：2025年7月 | 主要功能：✅ Selenium 餐廳搜尋系統已完成 | ✅ URL可靠性機制已實現 | ✅ 流汗指數模組已完成
+> 最後更新：2025年7月 | 主要功能：✅ ChatGPT 智能語意分析已完成 | ✅ 距離優先排序已實現 | ✅ 流汗指數模組已完成 | ✅ AI 推薦引擎已完成
