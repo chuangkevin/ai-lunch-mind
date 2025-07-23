@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🍱 AI 午餐推薦系統</title>
+  <style>
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      margin: 0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #333;
+      line-height: 1.6;
+    }
+    
+    .chat-container {
+      max-width: 600px;
+      margin: 20px auto;
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 90vh;
+    }
+    
+    .chat-header {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+      color: white;
+      padding: 20px;
+      text-align: center;
+      font-size: 1.3em;
+      font-weight: bold;
+    }
+    
+    .chat-messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #f8f9fa;
+    }
+    
+    .message {
+      margin-bottom: 15px;
+      animation: fadeIn 0.5s ease-in;
+    }
+    
+    .message.user {
+      text-align: right;
+    }
+    
+    .message.bot {
+      text-align: left;
+    }
+    
+    .message-content {
+      display: inline-block;
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 18px;
+      word-wrap: break-word;
+    }
+    
+    .message.user .message-content {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+    
+    .message.bot .message-content {
+      background: #e9ecef;
+      color: #333;
+      border: 1px solid #dee2e6;
+    }
+    
+    .input-area {
+      padding: 20px;
+      background: white;
+      border-top: 1px solid #dee2e6;
+      display: flex;
+      gap: 10px;
+    }
+    
+    .input-area textarea {
+      flex: 1;
+      padding: 12px 16px;
+      border: 2px solid #dee2e6;
+      border-radius: 15px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.3s;
+      resize: vertical;
+      min-height: 20px;
+      max-height: 100px;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+    
+    .input-area textarea:focus {
+      border-color: #667eea;
+    }
+    
+    .input-area button {
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: transform 0.2s;
+    }
+    
+    .input-area button:hover {
+      transform: translateY(-2px);
+    }
+    
+    .input-area button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .restaurant-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 10px 0;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      border-left: 4px solid #667eea;
+    }
+    
+    .restaurant-name {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .restaurant-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-size: 0.9em;
+      color: #666;
+    }
+    
+    .restaurant-info span {
+      background: #f8f9fa;
+      padding: 4px 8px;
+      border-radius: 12px;
+      border: 1px solid #dee2e6;
+    }
+    
+    .recommendation-score {
+      background: linear-gradient(135deg, #28a745, #20c997) !important;
+      color: white !important;
+      font-weight: bold;
+    }
+    
+    .weather-warning {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-top: 8px;
+      font-size: 0.85em;
+    }
+    
+    .restaurant-url {
+      margin-top: 8px;
+    }
+    
+    .restaurant-url a {
+      color: #667eea;
+      text-decoration: none;
+      font-size: 0.9em;
+    }
+    
+    .restaurant-url a:hover {
+      text-decoration: underline;
+    }
+    
+    .weather-summary {
+      background: linear-gradient(135deg, #74b9ff, #0984e3);
+      color: white;
+      padding: 15px;
+      border-radius: 12px;
+      margin: 10px 0;
+      text-align: center;
+    }
+    
+    .recommendation-summary {
+      background: #e8f5e8;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-size: 0.95em;
+    }
+    
+    .quick-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 15px 0;
+    }
+    
+    .quick-suggestion {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      padding: 8px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: all 0.3s;
+    }
+    
+    .quick-suggestion:hover {
+      background: #667eea;
+      color: white;
+      transform: translateY(-1px);
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+    
+    .loading::after {
+      content: '';
+      animation: loading 1.5s infinite;
+    }
+    
+    @keyframes loading {
+      0%, 33% { content: '🔍 分析中'; }
+      34%, 66% { content: '🔍 分析中.'; }
+      67%, 100% { content: '🔍 分析中..'; }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .intro-message {
+      background: #e8f4fd;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+      padding: 15px;
+      border-radius: 12px;
+      margin: 10px 0;
+    }
+    
+    .intro-message h4 {
+      margin: 0 0 10px 0;
+      color: #0c5460;
+    }
+    
+    .intro-message ul {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    
+    @media (max-width: 768px) {
+      .chat-container {
+        margin: 10px;
+        height: 95vh;
+      }
+      
+      .restaurant-info {
+        flex-direction: column;
+        gap: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      🍱 AI 午餐推薦系統
+      <div style="font-size: 0.8em; font-weight: normal; margin-top: 5px;">
+        智能整合天氣・流汗指數・餐廳搜尋
+      </div>
+    </div>
+    
+    <div class="chat-messages" id="chatMessages">
+      <div class="message bot">
+        <div class="message-content">
+          <div class="intro-message">
+            <h4>🤖 歡迎使用 AI 午餐推薦系統！</h4>
+            <p>我會根據您的位置、天氣狀況和個人喜好，智能推薦最適合的餐廳。</p>
+            
+            <h4>🎯 支援的輸入方式：</h4>
+            <ul>
+              <li><strong>位置 + 需求：</strong>"我在台北101，想吃火鍋"</li>
+              <li><strong>地址搜尋：</strong>"台北市信義區附近的日式料理"</li>
+              <li><strong>地標搜尋：</strong>"西門町的甜點店"</li>
+            </ul>
+            
+            <h4>🧠 智能推薦特色：</h4>
+            <ul>
+              <li>📊 根據流汗指數調整搜尋範圍</li>
+              <li>🌡️ 依據天氣條件過濾餐點類型</li>
+              <li>📍 自動計算距離並排序</li>
+              <li>🌧️ 降雨提醒與建議</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="quick-suggestions">
+      <div class="quick-suggestion" onclick="sendQuickMessage('我在台北車站，想吃拉麵')">台北車站拉麵</div>
+      <div class="quick-suggestion" onclick="sendQuickMessage('我在信義區，天氣熱想吃冰')">信義區冰品</div>
+      <div class="quick-suggestion" onclick="sendQuickMessage('我在西門町，找燒烤店')">西門町燒烤</div>
+      <div class="quick-suggestion" onclick="sendQuickMessage('我在中山區，想吃義大利麵')">中山區義大利麵</div>
+      <div class="quick-suggestion" onclick="sendQuickMessage('我在台北101附近')">根據時間推薦</div>
+    </div>
+    
+    <div class="input-area">
+      <textarea id="userInput" placeholder="告訴我您的位置和想吃什麼... (Shift+Enter 換行，Enter 送出)" rows="1" onkeydown="handleKeyDown(event)"></textarea>
+      <button onclick="sendMessage()" id="sendButton">推薦</button>
+    </div>
+  </div>
+
+  <script>
+    const chatMessages = document.getElementById('chatMessages');
+    const userInput = document.getElementById('userInput');
+    const sendButton = document.getElementById('sendButton');
+    
+    function addMessage(content, isUser = false) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+      messageDiv.innerHTML = `<div class="message-content">${content}</div>`;
+      chatMessages.appendChild(messageDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    function addLoadingMessage() {
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'message bot';
+      loadingDiv.id = 'loadingMessage';
+      loadingDiv.innerHTML = '<div class="message-content"><div class="loading"></div></div>';
+      chatMessages.appendChild(loadingDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return loadingDiv;
+    }
+    
+    function removeLoadingMessage() {
+      const loadingMsg = document.getElementById('loadingMessage');
+      if (loadingMsg) {
+        loadingMsg.remove();
+      }
+    }
+    
+    function formatRestaurantCard(restaurant) {
+      let infoItems = [];
+      
+      if (restaurant.rating) {
+        infoItems.push(`<span>⭐ ${restaurant.rating}</span>`);
+      }
+      if (restaurant.distance_km !== undefined && restaurant.distance_km !== null) {
+        infoItems.push(`<span>📍 ${restaurant.distance_km}km</span>`);
+      }
+      if (restaurant.price_level) {
+        infoItems.push(`<span>💰 ${restaurant.price_level}</span>`);
+      }
+      if (restaurant.recommendation_score !== undefined) {
+        infoItems.push(`<span class="recommendation-score">🎯 推薦度 ${restaurant.recommendation_score}%</span>`);
+      }
+      if (restaurant.food_temperature) {
+        const tempEmoji = restaurant.food_temperature === 'hot' ? '🔥' : 
+                         restaurant.food_temperature === 'cold' ? '❄️' : '🍽️';
+        infoItems.push(`<span>${tempEmoji} ${restaurant.search_keyword || '一般'}</span>`);
+      }
+      
+      let card = `
+        <div class="restaurant-card">
+          <div class="restaurant-name">🍽️ ${restaurant.name}</div>
+          <div class="restaurant-info">
+            ${infoItems.join('')}
+          </div>
+      `;
+      
+      if (restaurant.address) {
+        card += `<div style="color: #666; font-size: 0.9em; margin: 8px 0;">📍 ${restaurant.address}</div>`;
+      }
+      
+      if (restaurant.weather_warning) {
+        card += `<div class="weather-warning">⚠️ ${restaurant.weather_warning}</div>`;
+      }
+      
+      if (restaurant.maps_url) {
+        card += `<div class="restaurant-url">
+          <a href="${restaurant.maps_url}" target="_blank">📱 在 Google Maps 中查看</a>
+        </div>`;
+      }
+      
+      card += `</div>`;
+      return card;
+    }
+    
+    function formatWeatherSummary(weatherInfo) {
+      if (!weatherInfo) return '';
+      
+      const temp = weatherInfo.temperature || 'N/A';
+      const heatIndex = weatherInfo.heat_index || 'N/A';
+      const humidity = weatherInfo.humidity || 'N/A';
+      const sweatIndex = weatherInfo.sweat_index || 'N/A';
+      const comfortLevel = weatherInfo.comfort_level?.level || '普通';
+      
+      let rainInfo = '';
+      if (weatherInfo.rain_info?.probability !== 'N/A') {
+        rainInfo = `<br>🌧️ 降雨機率: ${weatherInfo.rain_info.probability}`;
+      }
+      
+      let heatIndexText = '';
+      if (heatIndex !== 'N/A' && heatIndex !== temp) {
+        heatIndexText = ` | 🌡️ 體感 ${heatIndex}°C`;
+      }
+      
+      // 加入時間資訊
+      const now = new Date();
+      const currentTime = now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+      const mealTime = getMealTimeDescription(now.getHours());
+      
+      return `
+        <div class="weather-summary">
+          ⏰ ${currentTime} (${mealTime})<br>
+          🌡️ ${temp}°C${heatIndexText} | 💧 ${humidity}% | 😅 流汗指數 ${sweatIndex}/10 (${comfortLevel})${rainInfo}
+        </div>
+      `;
+    }
+    
+    function getMealTimeDescription(currentHour) {
+      if (currentHour >= 6 && currentHour <= 9) {
+        return "早餐時段";
+      } else if (currentHour >= 10 && currentHour <= 11) {
+        return "早午餐時段";
+      } else if (currentHour >= 12 && currentHour <= 14) {
+        return "午餐時段";
+      } else if (currentHour >= 15 && currentHour <= 17) {
+        return "下午茶時段";
+      } else if (currentHour >= 18 && currentHour <= 21) {
+        return "晚餐時段";
+      } else if (currentHour >= 22 || currentHour <= 2) {
+        return "宵夜時段";
+      } else {
+        return "非用餐時段";
+      }
+    }
+    
+    async function sendMessage() {
+      const message = userInput.value.trim();
+      if (!message) return;
+      
+      // 添加使用者訊息
+      addMessage(message, true);
+      userInput.value = '';
+      sendButton.disabled = true;
+      
+      // 添加載入訊息
+      const loadingMsg = addLoadingMessage();
+      
+      try {
+        // 第一階段：獲取搜尋計劃
+        console.log('🔍 第一階段：獲取搜尋計劃...');
+        const planResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(message)}&phase=start`);
+        const planData = await planResponse.json();
+        
+        removeLoadingMessage();
+        
+        if (!planResponse.ok) {
+          throw new Error(planData.detail || '搜尋計劃生成失敗');
+        }
+        
+        // 檢查是否需要位置資訊
+        if (planData.need_location) {
+          let responseHtml = `
+            <div style="color: #856404; background: #fff3cd; padding: 12px; border-radius: 8px; border: 1px solid #ffeaa7;">
+              <strong>🗺️ ${planData.message}</strong><br><br>
+              <strong>💡 建議格式：</strong><br>
+          `;
+          planData.suggestions.forEach(suggestion => {
+            responseHtml += `• ${suggestion}<br>`;
+          });
+          responseHtml += `</div>`;
+          
+          addMessage(responseHtml);
+          return;
+        }
+        
+        // 顯示搜尋計劃
+        if (planData.phase === 'plan' && planData.search_plan) {
+          let planHtml = '';
+          
+          // 添加天氣摘要
+          if (planData.weather_info) {
+            planHtml += formatWeatherSummary(planData.weather_info);
+          }
+          
+          // 添加搜尋計劃
+          planHtml += `<div style="background: #e8f4fd; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 12px; margin: 10px 0;">
+            <strong>📋 搜尋計劃：</strong><br>
+            ${planData.search_plan.replace(/\n/g, '<br>')}
+          </div>`;
+          
+          addMessage(planHtml);
+          
+          // 短暫延遲後開始第二階段
+          setTimeout(async () => {
+            // 添加第二階段載入訊息
+            const searchLoadingMsg = addLoadingMessage();
+            
+            try {
+              // 第二階段：執行實際搜尋
+              console.log('🔍 第二階段：執行餐廳搜尋...');
+              const searchResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(message)}&phase=search`);
+              const searchData = await searchResponse.json();
+              
+              removeLoadingMessage();
+              
+              if (!searchResponse.ok) {
+                throw new Error(searchData.detail || '餐廳搜尋失敗');
+              }
+              
+              // 顯示搜尋結果
+              let searchHtml = '';
+              
+              // 添加推薦摘要
+              if (searchData.recommendation_summary) {
+                searchHtml += `<div class="recommendation-summary">
+                  <strong>📊 推薦摘要：</strong><br>${searchData.recommendation_summary}
+                </div>`;
+              }
+              
+              // 添加餐廳推薦
+              if (searchData.restaurants && searchData.restaurants.length > 0) {
+                searchHtml += `<div style="margin: 15px 0;"><strong>🎯 為您推薦 ${searchData.restaurants.length} 家餐廳：</strong></div>`;
+                
+                searchData.restaurants.forEach(restaurant => {
+                  searchHtml += formatRestaurantCard(restaurant);
+                });
+              } else {
+                searchHtml += `<div style="color: #856404; background: #fff3cd; padding: 12px; border-radius: 8px;">
+                  😅 抱歉，在指定範圍內沒有找到符合條件的餐廳。<br>
+                  建議您擴大搜尋範圍或嘗試其他關鍵字。
+                </div>`;
+              }
+              
+              addMessage(searchHtml);
+              
+            } catch (searchError) {
+              removeLoadingMessage();
+              addMessage(`<div style="color: #721c24; background: #f8d7da; padding: 12px; border-radius: 8px; border: 1px solid #f5c6cb;">
+                ❌ <strong>餐廳搜尋失敗：</strong>${searchError.message}<br><br>
+                請稍後再試或嘗試其他關鍵字。
+              </div>`);
+            }
+          }, 1000); // 1秒延遲，讓用戶看到搜尋計劃
+          
+        } else {
+          // 如果不是計劃階段，直接顯示結果
+          throw new Error('搜尋計劃格式異常');
+        }
+        
+      } catch (error) {
+        removeLoadingMessage();
+        addMessage(`<div style="color: #721c24; background: #f8d7da; padding: 12px; border-radius: 8px; border: 1px solid #f5c6cb;">
+          ❌ <strong>推薦失敗：</strong>${error.message}<br><br>
+          請檢查輸入格式，或稍後再試。
+        </div>`);
+      } finally {
+        sendButton.disabled = false;
+        userInput.focus();
+      }
+    }
+    
+    function sendQuickMessage(message) {
+      userInput.value = message;
+      sendMessage();
+    }
+    
+    function handleKeyDown(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+    
+    function handleKeyPress(event) {
+      // 保留向後相容性
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+    
+    // 自動調整 textarea 高度
+    function autoResizeTextarea() {
+      const textarea = document.getElementById('userInput');
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+    }
+    
+    // 初始化
+    window.addEventListener('load', function() {
+      userInput.focus();
+      
+      // 監聽 textarea 輸入事件來自動調整高度
+      userInput.addEventListener('input', autoResizeTextarea);
+      
+      // 顯示歡迎訊息和位置詢問
+      setTimeout(() => {
+        addMessage(`
+          <div style="color: #2c5aa0; background: #e3f2fd; padding: 15px; border-radius: 12px; border-left: 4px solid #2196f3;">
+            <strong>🤖 歡迎使用 AI 午餐推薦系統！</strong><br><br>
+            為了提供更精準的推薦，<strong>是否要提供您的目前位置？</strong><br><br>
+            <strong>💡 支援格式：</strong><br>
+            • 地標名稱：台北101、西門町<br>
+            • 詳細地址：台北市信義區<br>
+            • Google Maps 分享連結<br>
+            • 或直接說「我在（位置）」<br><br>
+            <small>💬 您也可以直接開始對話，例如：「台北車站附近的拉麵店」</small>
+          </div>
+        `);
+      }, 500);
+    });
+  </script>
+</body>
+</html>

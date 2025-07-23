@@ -14,7 +14,8 @@
     .weather-link { display: block; background: linear-gradient(135deg, #2a5d9f 0%, #17406a 100%); color: #fff; text-decoration: none; padding: 1.2em; border-radius: 12px; text-align: center; font-size: 1.1em; transition: transform 0.2s, box-shadow 0.2s; }
     .restaurant-link { display: block; background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: #fff; text-decoration: none; padding: 1.2em; border-radius: 12px; text-align: center; font-size: 1.1em; transition: transform 0.2s, box-shadow 0.2s; }
     .sweat-index-link { display: block; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: #fff; text-decoration: none; padding: 1.2em; border-radius: 12px; text-align: center; font-size: 1.1em; transition: transform 0.2s, box-shadow 0.2s; }
-    .weather-link:hover, .restaurant-link:hover, .sweat-index-link:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
+    .ai-recommendation-link { display: block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; text-decoration: none; padding: 1.2em; border-radius: 12px; text-align: center; font-size: 1.1em; transition: transform 0.2s, box-shadow 0.2s; border: 2px solid #ffd700; }
+    .weather-link:hover, .restaurant-link:hover, .sweat-index-link:hover, .ai-recommendation-link:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
     .feature-desc { font-size: 0.9em; opacity: 0.8; margin-top: 0.5em; }
     .footer { text-align: center; margin-top: 2em; color: #999; font-size: 0.9em; }
   </style>
@@ -26,19 +27,25 @@
     
     <ul>
       <li>
-        <a href="restaurant.html" class="restaurant-link">
+        <a href="/ai_lunch" class="ai-recommendation-link">
+          🤖 AI 智能午餐推薦
+          <div class="feature-desc">對話式智能推薦，整合天氣、流汗指數與餐廳搜尋</div>
+        </a>
+      </li>
+      <li>
+        <a href="/restaurant" class="restaurant-link">
           🍽️ 餐廳搜尋與推薦
           <div class="feature-desc">根據位置和喜好，智慧推薦附近美食</div>
         </a>
       </li>
       <li>
-        <a href="sweat_index.html" class="sweat-index-link">
+        <a href="/sweat_index" class="sweat-index-link">
           🌡️ 流汗指數查詢
           <div class="feature-desc">根據天氣條件分析流汗指數，規劃舒適用餐</div>
         </a>
       </li>
       <li>
-        <a href="weather.html" class="weather-link">
+        <a href="/weather_page" class="weather-link">
           🌤️ 天氣查詢
           <div class="feature-desc">查詢即時天氣資訊，規劃用餐計畫</div>
         </a>
