@@ -409,11 +409,25 @@ def get_simulated_weather(latitude: float, longitude: float) -> Dict:
 def query_sweat_index_by_location(location: str) -> Dict:
     """
     根據地點查詢真實天氣資料並計算流汗指數
-    :param location: 地點（地址、地標、座標等）
+    :param location: 地點（地址、地標、座標、Google Maps URL等）
     :return: 完整的流汗指數分析結果或錯誤訊息
     """
     try:
         print(f"🔍 正在查詢地點: {location}")
+        
+        # 檢查是否為 Google Maps URL，如果是則先解析
+        if ('maps.app.goo.gl' in location or 'g.co/kgs/' in location or 
+            'goo.gl' in location or 'maps.google.com' in location):
+            try:
+                from modules.google_maps import extract_location_from_url
+                parsed_location = extract_location_from_url(location)
+                if parsed_location:
+                    print(f"🌍 從 Google Maps URL 解析到位置: {parsed_location}")
+                    location = parsed_location
+                else:
+                    print(f"⚠️ Google Maps URL 解析失敗，使用原始 URL")
+            except Exception as e:
+                print(f"❌ Google Maps URL 解析錯誤: {e}")
         
         # 1. 地理編碼
         coords = get_location_coordinates(location)
@@ -702,9 +716,18 @@ def analyze_rain_impact(rain_data: dict) -> dict:
     :return: 降雨影響分析
     """
     try:
+        # 檢查 rain_data 是否為有效字典
+        if not rain_data or not isinstance(rain_data, dict):
+            return {
+                "probability": 'N/A',
+                "level": "未知",
+                "impact": "無降雨資料",
+                "advice": "建議查看最新天氣預報"
+            }
+        
         probability_str = rain_data.get('probability', 'N/A')
         
-        if probability_str == 'N/A' or probability_str == '':
+        if probability_str == 'N/A' or probability_str == '' or probability_str is None:
             return {
                 "probability": 'N/A',
                 "level": "未知",

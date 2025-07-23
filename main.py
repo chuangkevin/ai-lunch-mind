@@ -3,14 +3,28 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from modules.weather import get_weather_data
 from modules.google_maps import search_restaurants
 from modules.sweat_index import query_sweat_index_by_location, get_sweat_risk_alerts
 from modules.sweat_index import get_location_coordinates, get_real_weather_data
+from modules.ai_recommendation_engine import SmartRecommendationEngine, get_ai_lunch_recommendation
+
+# 創建全域 AI 推薦引擎實例（支援對話記憶）
+ai_engine = SmartRecommendationEngine()
 
 
 app = FastAPI(title="AI 午餐推薦系統", description="整合天氣查詢與餐廳推薦的智慧系統")
+
+# 添加 CORS 中間件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 掛載 frontend 靜態檔案到 /static
 
@@ -40,6 +54,11 @@ def sweat_index_page():
 @app.get("/weather_page", response_class=HTMLResponse)
 def weather_page():
     return FileResponse(os.path.join(STATIC_DIR, "weather.html"))
+
+# 新增 AI 午餐推薦頁面路由
+@app.get("/ai_lunch", response_class=HTMLResponse)
+def ai_lunch_page():
+    return FileResponse(os.path.join(STATIC_DIR, "ai_lunch.html"))
 
 
 # API 路由
@@ -236,6 +255,153 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
         raise HTTPException(status_code=500, detail=f"查詢失敗: {str(e)}")
 
 
+# AI 午餐推薦主功能 API 端點
+@app.get("/ai-lunch-recommendation")
+def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "", max_results: int = 10):
+    """
+    AI 午餐推薦主功能 API 端點
+    :param location: 位置資訊（地址、地標、經緯度）
+    :param user_input: 使用者自然語言輸入（可選）
+    :param max_results: 最大推薦結果數量
+    :return: 智能餐廳推薦結果
+    """
+    try:
+        if not location:
+            raise HTTPException(status_code=400, detail="請提供位置資訊（location 參數）")
+        
+        # 限制最大結果數量
+        max_results = min(max_results, 20)
+        
+        print(f"[AI推薦] 位置: {location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
+        
+        # 調用 AI 推薦引擎
+        recommendation_result = ai_engine.generate_recommendation(
+            location=location,
+            user_input=user_input,
+            max_results=max_results
+        )
+        
+        # 檢查是否有錯誤
+        if 'error' in recommendation_result:
+            raise HTTPException(
+                status_code=500, 
+                detail=recommendation_result.get('message', '推薦生成失敗')
+            )
+        
+        return recommendation_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API ERROR] AI 午餐推薦失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
+
+
+# 對話式推薦 API 端點（支援位置自動解析）
+@app.get("/chat-recommendation")
+def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
+    """
+    對話式餐廳推薦 API 端點（分階段執行）
+    :param message: 完整的使用者輸入訊息
+    :param phase: 執行階段 ("start" 回傳搜尋計劃, "search" 執行實際搜尋)
+    :return: 分階段的推薦結果
+    """
+    try:
+        if not message:
+            raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
+        
+        print(f"[對話推薦] 使用者訊息: '{message}', 階段: {phase}")
+        
+        # 根據階段執行對應操作
+        if phase == "start":
+            # 第一階段：只生成搜尋計劃
+            result = ai_engine.process_conversation(message, phase="start")
+            if result.get("phase") == "plan":
+                # 返回搜尋計劃，讓前端先顯示
+                return {
+                    "phase": "plan",
+                    "success": True,
+                    "location": result.get("location"),
+                    "search_plan": result.get("search_plan"),
+                    "weather_info": result.get("weather_info"),
+                    "search_keywords": result.get("search_keywords"),
+                    "message": "搜尋計劃已生成",
+                    "timestamp": result.get("timestamp")
+                }
+            else:
+                return result
+        
+        elif phase == "search":
+            # 第二階段：執行實際餐廳搜尋
+            result = ai_engine.process_conversation(message, phase="search")
+            return result
+        
+        else:
+            raise HTTPException(status_code=400, detail="phase 參數必須是 'start' 或 'search'")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API ERROR] 對話式推薦失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
+
+
+# 分階段對話式推薦 API 端點（POST 版本，支援 JSON 請求體）
+@app.post("/chat/recommend")
+def staged_chat_recommendation(request: Request):
+    """
+    分階段對話式餐廳推薦 API 端點
+    支援兩個階段：
+    1. phase="start" - 返回搜尋計劃
+    2. phase="search" - 執行實際搜尋
+    
+    POST Body:
+    {
+        "message": "使用者訊息",
+        "phase": "start" | "search"
+    }
+    """
+    import asyncio
+    
+    async def handle_request():
+        try:
+            # 解析 JSON 請求體
+            body = await request.json()
+            message = body.get("message")
+            phase = body.get("phase", "start")
+            
+            if not message:
+                raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
+            
+            print(f"[分階段推薦] 階段: {phase}, 訊息: '{message}'")
+            
+            # 使用 AI 推薦引擎處理對話（分階段）
+            result = ai_engine.process_conversation(message, phase=phase)
+            
+            # 根據階段決定回應內容
+            if phase == "start":
+                response_text = result.get("search_plan", "搜尋計劃生成中...")
+            else:
+                response_text = result.get("recommendation_summary", "推薦結果處理中...")
+            
+            return {
+                "status": "success",
+                "phase": phase,
+                "response": response_text,
+                "recommendations": result.get("restaurants", []),
+                "data": result,
+                "timestamp": result.get("timestamp")
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[API ERROR] 分階段推薦失敗: {e}")
+            raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
+    
+    return asyncio.run(handle_request())
+
+
 # 健康檢查 API 端點
 @app.get("/health")
 def health_check():
@@ -249,9 +415,11 @@ def health_check():
         return {
             "status": "healthy",
             "service": "AI 午餐推薦系統（整合流汗指數）",
-            "version": "2.0.0",
+            "version": "3.0.0",
             "cwb_api_key": api_key_status,
             "endpoints": [
+                "/ai-lunch-recommendation?location=地點&user_input=需求 - 🤖 AI智能推薦",
+                "/chat-recommendation?message=完整訊息 - 💬 對話式推薦",
                 "/sweat-index?location=地點名稱",
                 "/sweat-alerts?temperature=溫度&humidity=濕度",
                 "/weather_enhanced?location=地點名稱",
@@ -261,6 +429,7 @@ def health_check():
             ],
             "pages": [
                 "/ - 主頁面",
+                "/ai_lunch - 🤖 AI智能午餐推薦頁面",
                 "/sweat_index - 流汗指數查詢頁面",
                 "/restaurant - 餐廳搜尋頁面", 
                 "/weather_page - 天氣查詢頁面"
