@@ -1,7 +1,7 @@
 # 對話理解與條件分析模組
 # 使用 OpenAI GPT-4o-mini 進行自然語言處理
 
-import openai
+from openai import OpenAI
 import os
 import json
 import re
@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 # 載入環境變數
 load_dotenv()
 
-# 初始化 OpenAI API 金鑰
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# 初始化 OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # 食物類型模式字典（備用關鍵字檢測）
 FOOD_PATTERNS = {
@@ -38,23 +38,20 @@ def analyze_user_request(user_input):
     :return: dict, 結構化的需求分析結果
     """
     try:
-        system_prompt = """你是一個專業的餐廳推薦需求分析助手。請仔細分析使用者的輸入，特別注意以下重點：
+        system_prompt = """
+你是一個專業的餐廳推薦需求分析助手。請仔細分析使用者的輸入，並同時回傳：
+1. 食物類型（categories）：如：麵食、小吃、火鍋等
+2. 具體食物（keywords）：如：拉麵、牛肉麵、鹽酥雞等，必須精確提取用戶明確指定的食物
+3. 其他資訊（地點、預算、情境、店名等）
 
-1. 店名 vs 地名 vs 食物類型：
-   - 「龜山區東山鴨頭」→ 地區：龜山區，食物類型：東山鴨頭（是滷味/鴨頭類小吃）
-   - 「西門町麥當勞」→ 地區：西門町，店名：麥當勞
-   - 「台北牛肉麵」→ 地區：台北，食物類型：牛肉麵
+規則：
+- 若用戶輸入「我想吃拉麵」，categories 必須包含「麵食」，keywords 必須包含「拉麵」
+- 若用戶輸入「我想吃牛肉麵」，categories 必須包含「麵食」，keywords 必須包含「牛肉麵」
+- 若用戶輸入「我想吃火鍋」，categories 必須包含「火鍋」，keywords 必須包含「火鍋」
+- 若用戶輸入「我想吃鹽酥雞」，categories 必須包含「小吃」，keywords 必須包含「鹽酥雞」
+- 若用戶輸入「我在西門町找燒烤」，categories 必須包含「燒烤」，keywords 必須包含「燒烤」
 
-2. 食物類型識別：
-   - 東山鴨頭、鹽酥雞、雞排、臭豆腐 → 小吃類
-   - 牛肉麵、拉麵、意麵 → 麵食類
-   - 滷肉飯、便當 → 台式料理
-   - 火鍋、燒烤、熱炒 → 正餐類
-
-3. 連鎖店識別：麥當勞、星巴克、肯德基等知名連鎖品牌
-
-請提取以下資訊並以 JSON 格式回傳：
-
+請以 JSON 格式回傳分析結果，結構如下：
 {
   "location": {
     "address": "提取的地址/地點名稱，如果沒有則為 null",
@@ -63,7 +60,7 @@ def analyze_user_request(user_input):
   },
   "food_preferences": {
     "categories": ["食物類型陣列，如: 小吃, 麵食, 火鍋, 便當等"],
-    "keywords": ["具體食物關鍵字陣列，如: 東山鴨頭, 牛肉麵, 鹽酥雞等"],
+    "keywords": ["具體食物關鍵字陣列，如: 拉麵, 牛肉麵, 鹽酥雞, 火鍋等"],
     "mood_context": "用戶的情境描述，如：天氣熱想吃冰、肚子餓等",
     "restaurant_name": "如果輸入包含連鎖店名，提取店名（如：麥當勞、星巴克等）"
   },
@@ -80,13 +77,17 @@ def analyze_user_request(user_input):
 }
 
 範例分析：
-- 「龜山區東山鴨頭」→ location.address: "龜山區", food_preferences.keywords: ["東山鴨頭"], food_preferences.categories: ["小吃", "滷味"], intent: "search_food_type"
-- 「我在西門町找燒烤」→ location.address: "西門町", food_preferences.categories: ["燒烤"], intent: "search_restaurants"
+- 「我想吃拉麵」→ food_preferences.categories: ["麵食"], food_preferences.keywords: ["拉麵"], intent: "search_food_type"
+- 「我想吃牛肉麵」→ food_preferences.categories: ["麵食"], food_preferences.keywords: ["牛肉麵"], intent: "search_food_type"
+- 「我想吃火鍋」→ food_preferences.categories: ["火鍋"], food_preferences.keywords: ["火鍋"], intent: "search_food_type"
+- 「我想吃鹽酥雞」→ food_preferences.categories: ["小吃"], food_preferences.keywords: ["鹽酥雞"], intent: "search_food_type"
+- 「我在西門町找燒烤」→ location.address: "西門町", food_preferences.categories: ["燒烤"], food_preferences.keywords: ["燒烤"], intent: "search_restaurants"
 - 「信義區的麥當勞」→ location.address: "信義區", food_preferences.restaurant_name: "麥當勞", intent: "search_specific_store"
 
-請只回傳 JSON，不要有其他說明文字。"""
+請只回傳 JSON，不要有其他說明文字。
+"""
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -94,121 +95,65 @@ def analyze_user_request(user_input):
             ],
             temperature=0.1
         )
-        
-        result_text = response['choices'][0]['message']['content'].strip()
-        
+        result_text = response.choices[0].message.content.strip()
         # 嘗試解析 JSON
         try:
             parsed_result = json.loads(result_text)
+            # 後處理：若 keywords 未包含 user_input 的明確品項，自動補上
+            food_prefs = parsed_result.get("food_preferences", {})
+            keywords = food_prefs.get("keywords", [])
+            # 只取 user_input 中的明確食物詞（如麻辣鍋、牛肉麵、拉麵等）
+            # 這裡用簡單正則抽取
+            import re
+            explicit_foods = re.findall(r"[\u4e00-\u9fa5a-zA-Z0-9]+鍋|牛肉麵|拉麵|義大利麵|牛排|披薩|漢堡|炸雞|壽司|天婦羅|刺身|燒烤|臭豆腐|雞排|鴨頭|蚵仔煎|滷肉飯|涼麵|蛋餅|三明治|咖啡|甜點|小吃|便當|湯麵|意麵|火鍋|炸物|布丁|蛋糕|雪花冰|芒果冰|果汁|奶茶|美式|拿鐵|沙拉|煲湯|湯品|餐盒|飯盒|烤肉|燒肉|炒菜|合菜|定食|早午餐|宵夜|泡麵|居酒屋|咖啡廳|餐廳", user_input)
+            for food in explicit_foods:
+                if food not in keywords:
+                    keywords.append(food)
+            food_prefs["keywords"] = keywords
+            parsed_result["food_preferences"] = food_prefs
             return {
                 "success": True,
                 "analysis": parsed_result,
                 "raw_response": result_text
             }
         except json.JSONDecodeError:
-            # 如果 JSON 解析失敗，回傳基本分析
+            # 如果 JSON 解析失敗，直接回傳錯誤
             return {
                 "success": False,
                 "error": "JSON parsing failed",
-                "raw_response": result_text,
-                "fallback_analysis": _fallback_analysis(user_input)
+                "raw_response": result_text
             }
-            
     except Exception as e:
         print(f"❌ ChatGPT 分析錯誤: {e}")
         return {
             "success": False,
-            "error": str(e),
-            "fallback_analysis": _fallback_analysis(user_input)
+            "error": str(e)
         }
 
-def _fallback_analysis(user_input):
-    """
-    當 ChatGPT 分析失敗時的備用分析方法
-    """
-    user_lower = user_input.lower()
-    
-    # 簡單的關鍵字匹配
-    food_categories = []
-    if any(word in user_lower for word in ['冰', '剉冰', '冰品']):
-        food_categories.append('冰品')
-    if any(word in user_lower for word in ['甜點', '蛋糕', '布丁']):
-        food_categories.append('甜點')
-    if '火鍋' in user_lower:
-        food_categories.append('火鍋')
-    if '便當' in user_lower:
-        food_categories.append('便當')
-    if any(word in user_lower for word in ['咖啡', '拿鐵']):
-        food_categories.append('咖啡廳')
-    
-    # 提取位置
-    location = None
-    if 'maps.app.goo.gl' in user_input or 'google.com/maps' in user_input:
-        url_pattern = r'https?://[^\s]+'
-        urls = re.findall(url_pattern, user_input)
-        if urls:
-            location = {"google_maps_url": urls[0]}
-    else:
-        # 地點名稱匹配
-        location_patterns = [
-            r'([^，。！？\s]*(?:區|站|路|街|市|縣|101|大樓|商場|夜市))',
-            r'(台北\w+|高雄\w+|台中\w+|台南\w+)',
-        ]
-        for pattern in location_patterns:
-            matches = re.findall(pattern, user_input)
-            if matches:
-                location = {"address": matches[0]}
-                break
-    
-    # 預算提取
-    budget_pattern = r'(\d+)\s*(?:元|塊|dollar)'
-    budget_matches = re.findall(budget_pattern, user_lower)
-    budget = None
-    if budget_matches:
-        amounts = [int(m) for m in budget_matches]
-        if len(amounts) == 1:
-            budget = {"max": amounts[0], "currency": "TWD"}
-        elif len(amounts) == 2:
-            budget = {"min": min(amounts), "max": max(amounts), "currency": "TWD"}
-    
-    return {
-        "location": location,
-        "food_preferences": {
-            "categories": food_categories,
-            "keywords": [],
-            "mood_context": "熱" if "熱" in user_lower else None
-        },
-        "budget": budget,
-        "constraints": {},
-        "intent": "search_restaurants"
-    }
 
 def extract_search_keywords_from_analysis(analysis_result):
     """
     從分析結果中提取搜尋關鍵字
     """
-    if not analysis_result.get("success") and not analysis_result.get("fallback_analysis"):
-        return ["便當", "小吃"]  # 預設關鍵字
-    
+    if not analysis_result.get("success"):
+        return []  # 失敗時不回傳預設關鍵字
+
     # 取得分析數據
-    if analysis_result.get("success"):
-        data = analysis_result["analysis"]
-    else:
-        data = analysis_result["fallback_analysis"]
-    
+    data = analysis_result["analysis"]
+
     # 提取食物類型
     categories = data.get("food_preferences", {}).get("categories", [])
     if categories:
         return categories[:3]  # 限制最多3個類型
-    
+
     # 如果沒有明確類型，根據情境推薦
     mood = data.get("food_preferences", {}).get("mood_context", "")
     if "熱" in mood:
         return ["冰品", "涼麵", "甜點"]
     elif "冷" in mood:
         return ["火鍋", "熱炒", "湯品"]
-    
-    return ["便當", "小吃", "輕食"]  # 預設關鍵字
+
+    return []  # 不回傳預設關鍵字
 
 def detect_food_keywords_fallback(user_input):
     """
@@ -259,4 +204,4 @@ def analyze_user_input(user_input):
     if result.get("success"):
         return result["analysis"]
     else:
-        return result.get("fallback_analysis", {})
+        return {}
