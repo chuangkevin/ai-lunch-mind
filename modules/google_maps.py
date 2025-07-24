@@ -21,8 +21,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import logging
+import os
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -67,6 +69,15 @@ def create_session() -> requests.Session:
     return session
 
 def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
+    # 啟動前自動 kill 殘留 chromedriver 程序（Windows/Linux 通用）
+    import subprocess
+    try:
+        if os.name == 'nt':
+            subprocess.run('taskkill /F /IM chromedriver.exe', shell=True)
+        else:
+            subprocess.run('pkill -f chromedriver', shell=True)
+    except Exception as e:
+        logger.warning(f'自動清理 chromedriver 程序失敗: {e}')
     """
     建立 Chrome 瀏覽器驅動
     :param headless: 是否無頭模式
@@ -110,8 +121,29 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     # 語言設定
     options.add_argument('--lang=zh-TW')
     
+    # 自動偵測 chrome.exe 路徑
+    import shutil
+    chrome_path = shutil.which('chrome')
+    if not chrome_path:
+        # Linux/Docker 常見路徑
+        possible_paths = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chrome',
+            r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+            os.path.expandvars(r'C:\Users\%USERNAME%\AppData\Local\Google\Chrome\Application\chrome.exe')
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                chrome_path = path
+                break
+    if chrome_path:
+        options.binary_location = chrome_path
+    else:
+        logger.error('❌ 未偵測到 Chrome，請在容器或主機安裝 Google Chrome 或 Chromium！')
     try:
-        driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
     except Exception as e:
@@ -897,8 +929,11 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         return []
         
     finally:
-        if driver:
-            driver.quit()
+        try:
+            if driver:
+                driver.quit()
+        except Exception:
+            pass
 
 def find_search_results(driver) -> List:
     """
