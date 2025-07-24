@@ -31,7 +31,24 @@ class SmartRecommendationEngine:
                 temperature = 25
             
             # 2. 選擇搜尋關鍵字（按您的要求：無冰品、沙拉，有熱炒、臭豆腐）
-            search_keywords = self._get_search_keywords(user_input, sweat_index, temperature)
+            # 直接取得 AI 分析結果
+            analysis_result = analyze_user_request(user_input)
+            search_keywords = []
+            if analysis_result.get("success"):
+                food_prefs = analysis_result["analysis"].get("food_preferences", {})
+                categories = food_prefs.get("categories", [])
+                keywords = food_prefs.get("keywords", [])
+                print(f"🎯 AI分析分類：{', '.join(categories)}")
+                print(f"🎯 AI分析細項：{', '.join(keywords)}")
+                # 優先用 keywords（如拉麵），只有 keywords 為空才用 categories
+                if keywords:
+                    search_keywords = keywords[:3]
+                elif categories:
+                    search_keywords = categories[:3]
+            else:
+                print(f"⚠️ AI分析失敗，使用預設關鍵字")
+                search_keywords = self._get_search_keywords(user_input, sweat_index, temperature)
+            print(f"🔍 本次搜尋關鍵字：{', '.join(search_keywords)}")
             
             # 3. 先回傳搜尋計劃給用戶
             search_plan = self._generate_search_plan(location, sweat_data, search_keywords, user_input)
