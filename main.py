@@ -1,9 +1,12 @@
 # 主程式入口
 
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+
+
 import os
 from modules.weather import get_weather_data
 from modules.google_maps import search_restaurants
@@ -14,8 +17,12 @@ from modules.ai_recommendation_engine import SmartRecommendationEngine, get_ai_l
 # 創建全域 AI 推薦引擎實例（支援對話記憶）
 ai_engine = SmartRecommendationEngine()
 
-
 app = FastAPI(title="AI 午餐推薦系統", description="整合天氣查詢與餐廳推薦的智慧系統")
+
+# 新增 AI 語意分析 demo 頁面路由
+@app.get("/ai_analysis_demo", response_class=HTMLResponse)
+def ai_analysis_demo_page():
+    return FileResponse("frontend/ai_analysis_demo.html")
 
 # 添加 CORS 中間件
 app.add_middleware(
@@ -266,30 +273,43 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
     :return: 智能餐廳推薦結果
     """
     try:
+        # 1. 先用 AI 語意分析 user_input
+        from modules.dialog_analysis import analyze_user_request
+        analysis_result = analyze_user_request(user_input)
+        # 2. location 若未提供，嘗試自動補全
+        auto_location = location
         if not location:
-            raise HTTPException(status_code=400, detail="請提供位置資訊（location 參數）")
-        
+            # 從分析結果補地點或 Google Maps網址
+            analysis = analysis_result.get("analysis") or analysis_result.get("fallback_analysis")
+            if analysis:
+                loc_info = analysis.get("location", {})
+                auto_location = loc_info.get("address") or loc_info.get("google_maps_url")
+        if not auto_location:
+            raise HTTPException(status_code=400, detail="請提供位置資訊（location 參數），或在輸入中包含地點/Google Maps網址")
+
         # 限制最大結果數量
         max_results = min(max_results, 20)
-        
-        print(f"[AI推薦] 位置: {location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
-        
+
+        print(f"[AI推薦] 位置: {auto_location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
+
         # 調用 AI 推薦引擎
         recommendation_result = ai_engine.generate_recommendation(
-            location=location,
+            location=auto_location,
             user_input=user_input,
             max_results=max_results
         )
-        
+
         # 檢查是否有錯誤
         if 'error' in recommendation_result:
             raise HTTPException(
                 status_code=500, 
                 detail=recommendation_result.get('message', '推薦生成失敗')
             )
-        
+
+        # 回傳時附加 analysis_result 讓前端可顯示 AI 理解內容
+        recommendation_result['analysis_result'] = analysis_result
         return recommendation_result
-        
+
     except HTTPException:
         raise
     except Exception as e:

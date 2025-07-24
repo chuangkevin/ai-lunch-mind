@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>AI 語意分析 Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: 'Noto Sans TC', Arial, sans-serif; background: #f7f7fa; margin: 0; }
+    .container { max-width: 540px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px #0001; padding: 32px; }
+    h2 { margin-top: 0; color: #2c3e50; }
+    .input-area { margin-bottom: 24px; }
+    textarea { width: 100%; min-height: 60px; font-size: 1.1em; border-radius: 8px; border: 1px solid #ccc; padding: 10px; }
+    button { background: #007bff; color: #fff; border: none; border-radius: 8px; padding: 10px 24px; font-size: 1em; cursor: pointer; }
+    button:disabled { background: #aaa; }
+    .result { margin-top: 32px; background: #f0f4ff; border-radius: 8px; padding: 18px; }
+    .result-title { font-weight: bold; color: #007bff; margin-bottom: 8px; }
+    .result-block { margin-bottom: 16px; }
+    .label { color: #555; font-weight: bold; }
+    .value { color: #222; }
+    .error { color: #c00; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>AI 語意分析 Demo</h2>
+    <div class="input-area">
+      <label for="userInput">請輸入一句話（地點、品項、需求...）：</label>
+      <textarea id="userInput" placeholder="例如：台北信義區想吃牛肉麵或附近有什麼好吃的？"></textarea>
+      <button id="analyzeBtn">分析</button>
+    </div>
+    <div id="result" class="result" style="display:none;"></div>
+    <div id="errorMsg" class="error"></div>
+  </div>
+  <script>
+    const btn = document.getElementById('analyzeBtn');
+    const input = document.getElementById('userInput');
+    const resultDiv = document.getElementById('result');
+    const errorDiv = document.getElementById('errorMsg');
+
+    btn.onclick = async function() {
+      const text = input.value.trim();
+      resultDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      if (!text) {
+        errorDiv.textContent = '請輸入內容';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '分析中...';
+      try {
+        const res = await fetch(`/ai-lunch-recommendation?user_input=${encodeURIComponent(text)}`);
+        const data = await res.json();
+        btn.disabled = false;
+        btn.textContent = '分析';
+        if (!data.success && data.error) {
+          errorDiv.textContent = data.error;
+          return;
+        }
+        const analysis = data.analysis_result?.analysis || data.analysis_result?.fallback_analysis || {};
+        let html = '';
+        html += `<div class='result-title'>AI 分析結果</div>`;
+        html += `<div class='result-block'><span class='label'>地點：</span> <span class='value'>${analysis.location?.address || analysis.location?.google_maps_url || '（無）'}</span></div>`;
+        html += `<div class='result-block'><span class='label'>品項：</span> <span class='value'>${(analysis.food_preferences?.categories || []).join(', ') || '（無）'}</span></div>`;
+        html += `<div class='result-block'><span class='label'>關鍵字：</span> <span class='value'>${(analysis.food_preferences?.keywords || []).join(', ') || '（無）'}</span></div>`;
+        html += `<div class='result-block'><span class='label'>店名：</span> <span class='value'>${analysis.food_preferences?.restaurant_name || '（無）'}</span></div>`;
+        html += `<div class='result-block'><span class='label'>搜尋計畫：</span> <span class='value'>${data.search_plan || '（無）'}</span></div>`;
+        resultDiv.innerHTML = html;
+        resultDiv.style.display = 'block';
+      } catch (err) {
+        errorDiv.textContent = '伺服器錯誤或網路異常';
+        btn.disabled = false;
+        btn.textContent = '分析';
+      }
+    };
+  </script>
+</body>
+</html>

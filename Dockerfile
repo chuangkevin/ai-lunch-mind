@@ -4,7 +4,8 @@ FROM python:3.11-slim
 # 設定工作目錄
 WORKDIR /app
 
-# 安裝系統依賴（Chrome 瀏覽器和相關工具）
+
+# 安裝 Chrome 與 chromedriver
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -13,7 +14,8 @@ RUN apt-get update && apt-get install -y \
     && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
-    && apt-get install -y google-chrome-stable \
+    && apt-get install -y google-chrome-stable chromium-chromedriver \
+    && ln -sf /usr/lib/chromium/chromedriver /usr/bin/chromedriver \
     && rm -rf /var/lib/apt/lists/*
 
 # 複製 requirements.txt 並安裝 Python 依賴
@@ -31,6 +33,7 @@ EXPOSE 5000
 ENV DISPLAY=:99
 ENV CHROME_BIN=/usr/bin/google-chrome
 ENV CHROME_PATH=/usr/bin/google-chrome
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
 # 啟動流汗指數查詢伺服器
 CMD ["python", "sweat_index_server.py"]
