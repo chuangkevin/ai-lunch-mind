@@ -10,3 +10,5 @@ tests/
 **/test_*.py
 **/*_test.py
 **/tests/
+extract_minimal.py
+modules/google_maps_optimized.py
