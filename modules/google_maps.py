@@ -1,6 +1,7 @@
 """
-Google Maps 餐廳搜尋模組 - Selenium 版本
+Google Maps 餐廳搜尋模組 - Selenium 版本 + 多工處理優化
 使用 Selenium 進行真實瀏覽器自動化搜尋，提供更準確的餐廳資訊
+新增多工處理功能：並行搜尋、瀏覽器池、快取機制
 """
 
 from typing import List, Dict, Optional, Any, Tuple
@@ -23,6 +24,13 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import logging
+import asyncio
+import concurrent.futures
+import threading
+from queue import Queue
+from contextlib import contextmanager
+import json
+from datetime import datetime, timedelta
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -117,6 +125,136 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     except Exception as e:
         logger.error(f"建立 Chrome 驅動失敗: {e}")
         raise
+
+def create_chrome_driver_fast(headless: bool = True) -> webdriver.Chrome:
+    """
+    建立 Chrome 瀏覽器驅動 - 速度優化版本
+    :param headless: 是否無頭模式
+    :return: Chrome WebDriver
+    """
+    options = Options()
+    
+    if headless:
+        options.add_argument('--headless')
+    
+    # 最精簡的設定 - 只保留必要選項
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-logging')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-plugins')
+    options.add_argument('--disable-images')  # 不載入圖片加速
+    options.add_argument('--disable-javascript')  # 不執行 JS 加速
+    options.add_argument('--window-size=1024,768')  # 小視窗
+    
+    # 最快的 User-Agent
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+    
+    try:
+        driver = webdriver.Chrome(options=options)
+        return driver
+    except Exception as e:
+        logger.error(f"建立快速 Chrome 驅動失敗: {e}")
+        raise
+
+class BrowserPool:
+    """瀏覽器實例池，管理多個瀏覽器實例以提升效能"""
+    
+    def __init__(self, pool_size: int = 1):  # 減少池大小
+        self.pool_size = pool_size
+        self.available_browsers = Queue()
+        self.all_browsers = []
+        self.lock = threading.Lock()
+        self._initialize_pool()
+    
+    def _initialize_pool(self):
+        """初始化瀏覽器池"""
+        logger.info(f"🚀 初始化瀏覽器池，大小: {self.pool_size}")
+        for i in range(self.pool_size):
+            try:
+                driver = create_chrome_driver_fast()  # 使用快速版本
+                self.available_browsers.put(driver)
+                self.all_browsers.append(driver)
+                logger.info(f"✅ 瀏覽器 {i+1} 已創建並加入池中")
+            except Exception as e:
+                logger.error(f"❌ 創建瀏覽器 {i+1} 失敗: {e}")
+    
+    @contextmanager
+    def get_browser(self):
+        """獲取瀏覽器實例的上下文管理器"""
+        driver = None
+        try:
+            # 嘗試從池中獲取瀏覽器，超時 3 秒
+            driver = self.available_browsers.get(timeout=3)
+            yield driver
+        except:
+            # 如果池中沒有可用瀏覽器，創建新的
+            logger.warning("⚠️ 池中無可用瀏覽器，創建新實例")
+            driver = create_chrome_driver(headless=True)
+            yield driver
+        finally:
+            if driver:
+                try:
+                    # 清理瀏覽器狀態
+                    driver.delete_all_cookies()
+                    # 將瀏覽器放回池中
+                    self.available_browsers.put(driver)
+                except:
+                    # 如果瀏覽器已損壞，關閉它
+                    try:
+                        driver.quit()
+                    except:
+                        pass
+    
+    def close_all(self):
+        """關閉所有瀏覽器實例"""
+        logger.info("🛑 關閉所有瀏覽器實例")
+        for driver in self.all_browsers:
+            try:
+                driver.quit()
+            except:
+                pass
+
+class SearchCache:
+    """搜尋結果快取，避免重複搜尋"""
+    
+    def __init__(self, cache_ttl: int = 300):  # 5分鐘快取
+        self.cache = {}
+        self.cache_ttl = cache_ttl
+        self.lock = threading.Lock()
+    
+    def get_cache_key(self, keyword: str, location_info: Optional[Dict] = None) -> str:
+        """生成快取鍵"""
+        location_str = ""
+        if location_info and location_info.get('address'):
+            location_str = location_info['address']
+        return f"{keyword}_{location_str}"
+    
+    def get(self, keyword: str, location_info: Optional[Dict] = None) -> Optional[List[Dict]]:
+        """獲取快取結果"""
+        cache_key = self.get_cache_key(keyword, location_info)
+        with self.lock:
+            if cache_key in self.cache:
+                cached_data, timestamp = self.cache[cache_key]
+                if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
+                    logger.info(f"📦 使用快取結果: {cache_key}")
+                    return cached_data
+                else:
+                    # 快取過期，刪除
+                    del self.cache[cache_key]
+        return None
+    
+    def set(self, keyword: str, location_info: Optional[Dict], results: List[Dict]):
+        """設置快取結果"""
+        cache_key = self.get_cache_key(keyword, location_info)
+        with self.lock:
+            self.cache[cache_key] = (results, datetime.now())
+            logger.info(f"💾 快取搜尋結果: {cache_key}")
+
+# 全域實例
+browser_pool = BrowserPool(pool_size=2)
+search_cache = SearchCache()
 
 def expand_short_url(short_url: str, max_redirects: int = 10) -> str:
     """
@@ -813,6 +951,229 @@ def calculate_distance(user_coords: Tuple[float, float], restaurant_coords: Tupl
     except Exception:
         return None
 
+def search_restaurants_parallel(keyword: str, location_info: Optional[Dict] = None, max_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    並行搜尋餐廳 - 多工處理優化版本
+    使用瀏覽器池和多執行緒並行搜尋，大幅提升搜尋速度
+    
+    :param keyword: 搜尋關鍵字
+    :param location_info: 位置資訊
+    :param max_results: 最大結果數
+    :return: 餐廳資訊列表
+    """
+    
+    # 檢查快取
+    cached_results = search_cache.get(keyword, location_info)
+    if cached_results:
+        logger.info(f"📦 使用快取結果，關鍵字: {keyword}")
+        return cached_results[:max_results]
+    
+    logger.info(f"🚀 開始並行搜尋餐廳: {keyword}")
+    start_time = time.time()
+    
+    # 構建搜尋查詢
+    if location_info and location_info.get('address'):
+        search_query = f"{location_info['address']} {keyword} 餐廳"
+    else:
+        search_query = f"{keyword} 餐廳 台灣"
+    
+    encoded_query = quote(search_query)
+    
+    # 精簡搜尋策略 - 只用最有效的一種
+    search_strategies = [
+        {
+            'name': 'Maps直接搜尋',
+            'url': f"https://www.google.com/maps/search/{encoded_query}/@25.0478,121.5318,12z",
+            'priority': 1
+        }
+    ]
+    
+    all_restaurants = []
+    
+    # 使用 ThreadPoolExecutor 並行執行搜尋策略
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        # 提交所有搜尋任務
+        future_to_strategy = {
+            executor.submit(execute_search_strategy_with_pool, strategy, location_info, keyword): strategy 
+            for strategy in search_strategies
+        }
+        
+        # 收集結果
+        for future in concurrent.futures.as_completed(future_to_strategy):
+            strategy = future_to_strategy[future]
+            
+            try:
+                restaurants = future.result()
+                if restaurants:
+                    logger.info(f"✅ {strategy['name']} 找到 {len(restaurants)} 個結果")
+                    all_restaurants.extend(restaurants)
+                else:
+                    logger.warning(f"❌ {strategy['name']} 未找到結果")
+                    
+            except Exception as e:
+                logger.error(f"❌ {strategy['name']} 執行失敗: {e}")
+            
+            # 如果已經有足夠的結果，可以考慮提前結束
+            if len(all_restaurants) >= max_results * 1.5:  # 多收集一些以便篩選
+                logger.info(f"✨ 已收集足夠結果 ({len(all_restaurants)})，加速完成")
+                break
+    
+    # 去重
+    unique_restaurants = remove_duplicate_restaurants(all_restaurants)
+    
+    # 如果有位置資訊，按距離排序
+    if location_info and location_info.get('coords'):
+        unique_restaurants = sort_restaurants_by_distance(unique_restaurants, location_info['coords'])
+    
+    # 限制結果數量
+    final_results = unique_restaurants[:max_results]
+    
+    # 快取結果
+    if final_results:
+        search_cache.set(keyword, location_info, final_results)
+    
+    elapsed_time = time.time() - start_time
+    logger.info(f"🎉 並行搜尋完成！找到 {len(final_results)} 家餐廳，耗時 {elapsed_time:.2f} 秒")
+    
+    return final_results
+
+def execute_search_strategy_with_pool(strategy: Dict, location_info: Optional[Dict] = None, keyword: str = "") -> List[Dict[str, Any]]:
+    """
+    使用瀏覽器池執行單個搜尋策略
+    
+    :param strategy: 搜尋策略配置
+    :param location_info: 位置資訊
+    :param keyword: 搜尋關鍵字
+    :return: 餐廳列表
+    """
+    
+    restaurants = []
+    
+    try:
+        with browser_pool.get_browser() as driver:
+            logger.info(f"🔍 執行 {strategy['name']}: {strategy['url']}")
+            
+            # 訪問搜尋頁面
+            driver.get(strategy['url'])
+            
+            # 大幅縮短等待時間
+            time.sleep(0.5)  # 只等待 0.5 秒
+            
+            # 檢查是否被阻擋
+            if "sorry" in driver.current_url.lower() or "captcha" in driver.page_source.lower():
+                logger.warning(f"❌ {strategy['name']} 被 Google 阻擋")
+                return restaurants
+            
+            # 尋找搜尋結果
+            result_elements = find_search_results(driver)
+            
+            if not result_elements:
+                logger.warning(f"❌ {strategy['name']} 未找到結果元素")
+                return restaurants
+            
+            # 提取餐廳資訊（限制數量避免過載）
+            for element in result_elements[:8]:  # 減少到 8 個
+                try:
+                    restaurant_info = extract_restaurant_info_minimal(element, location_info)
+                    if restaurant_info and restaurant_info.get('name'):
+                        # 檢查是否為餐廳相關
+                        if is_restaurant_relevant(restaurant_info['name'], keyword):
+                            restaurants.append(restaurant_info)
+                            logger.debug(f"✅ 找到餐廳: {restaurant_info['name']}")
+                        
+                except Exception as e:
+                    logger.debug(f"提取餐廳資訊失敗: {e}")
+                    continue
+            
+            logger.info(f"✅ {strategy['name']} 成功提取 {len(restaurants)} 家餐廳")
+            
+    except Exception as e:
+        logger.error(f"❌ {strategy['name']} 執行失敗: {e}")
+    
+    return restaurants
+
+def remove_duplicate_restaurants(restaurants: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    去除重複的餐廳
+    
+    :param restaurants: 餐廳列表
+    :return: 去重後的餐廳列表
+    """
+    
+    seen_names = set()
+    unique_restaurants = []
+    
+    for restaurant in restaurants:
+        name = restaurant.get('name', '').strip()
+        if name and name not in seen_names:
+            seen_names.add(name)
+            unique_restaurants.append(restaurant)
+    
+    return unique_restaurants
+
+def sort_restaurants_by_distance(restaurants: List[Dict[str, Any]], user_coords: Tuple[float, float]) -> List[Dict[str, Any]]:
+    """
+    按距離排序餐廳
+    
+    :param restaurants: 餐廳列表
+    :param user_coords: 用戶座標
+    :return: 排序後的餐廳列表
+    """
+    
+    def get_distance_key(restaurant):
+        distance = restaurant.get('distance_km')
+        return distance if distance is not None else float('inf')
+    
+    return sorted(restaurants, key=get_distance_key)
+
+def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
+    """
+    最精簡的餐廳資訊提取 - 只獲取名稱和基本資訊
+    
+    :param element: 搜尋結果元素
+    :param location_info: 位置資訊
+    :return: 餐廳資訊字典
+    """
+    
+    restaurant_info = {
+        'name': '',
+        'address': '',
+        'rating': None,
+        'distance_km': 3.0  # 預設距離
+    }
+    
+    try:
+        # 只提取名稱 - 使用最快的選擇器
+        name_selectors = ["span.OSrXXb", "h3.LC20lb", "div.qBF1Pd"]
+        
+        for selector in name_selectors:
+            try:
+                name_element = element.find_element(By.CSS_SELECTOR, selector)
+                name = name_element.text.strip()
+                if name and len(name) > 1:
+                    restaurant_info['name'] = name
+                    break
+            except:
+                continue
+        
+        if not restaurant_info['name']:
+            return None
+        
+        # 快速提取評分 (可選)
+        try:
+            rating_element = element.find_element(By.CSS_SELECTOR, "span.yi40Hd")
+            rating_text = rating_element.text.strip()
+            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+            if rating_match:
+                restaurant_info['rating'] = float(rating_match.group(1))
+        except:
+            pass
+        
+        return restaurant_info
+        
+    except Exception as e:
+        return None
+
 def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = None, max_results: int = 10) -> List[Dict[str, Any]]:
     """
     使用 Selenium 搜尋 Google Maps 餐廳
@@ -878,7 +1239,7 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         # 提取餐廳資訊
         for i, element in enumerate(result_elements[:max_results]):
             try:
-                restaurant_info = extract_restaurant_info_from_element_improved(element, location_info, driver)
+                restaurant_info = extract_restaurant_info_minimal(element, location_info)
                 if restaurant_info and restaurant_info.get('name'):
                     # 檢查是否為餐廳相關
                     if is_restaurant_relevant(restaurant_info['name'], keyword):
@@ -937,561 +1298,14 @@ def find_search_results(driver) -> List:
 
 def extract_restaurant_info_from_element_improved(element, location_info: Optional[Dict] = None, driver=None) -> Optional[Dict[str, Any]]:
     """
-    改進版餐廳資訊提取函數
+    改進版餐廳資訊提取函數 - 現在直接調用精簡版本
     :param element: Selenium WebElement
     :param location_info: 使用者位置資訊
     :param driver: WebDriver 實例
     :return: 餐廳資訊字典
     """
-    try:
-        restaurant_info = {
-            'name': None,
-            'address': None,
-            'maps_url': None,
-            'rating': None,
-            'price_level': None,
-            'distance_km': None
-        }
-        
-        # 提取餐廳名稱 - 更新選擇器針對新的 Google Maps 結構
-        name_selectors = [
-            "div.qBF1Pd.fontHeadlineSmall",  # 新版 Google Maps 餐廳名稱
-            "div.qBF1Pd",  # 簡化版選擇器
-            ".fontHeadlineSmall",  # 標題樣式
-            "h3.LC20lb",  # 傳統搜尋結果
-            "h3",  # 一般標題
-            "div[role='heading']",  # 語義化標題
-            ".BNeawe.vvjwJb.AP7Wnd",  # 舊版選擇器
-            "a h3",  # 連結內的標題
-            "span.OSrXXb"  # 其他文字選擇器
-        ]
-        
-        for selector in name_selectors:
-            try:
-                name_element = element.find_element(By.CSS_SELECTOR, selector)
-                name_text = name_element.text.strip()
-                if name_text and len(name_text) > 0:
-                    restaurant_info['name'] = name_text
-                    logger.info(f"使用選擇器 {selector} 提取到餐廳名稱: {name_text}")
-                    break
-            except NoSuchElementException:
-                continue
-        
-        # 如果還是沒有名稱，嘗試從連結文字提取
-        if not restaurant_info['name']:
-            try:
-                link_elements = element.find_elements(By.CSS_SELECTOR, "a")
-                for link in link_elements:
-                    link_text = link.text.strip()
-                    if link_text and len(link_text) > 3:  # 過濾太短的文字
-                        restaurant_info['name'] = link_text
-                        break
-            except:
-                pass
-        
-        # 提取 Google Maps 連結 - 修正版本，正確識別 place 連結
-        logger.info("開始嘗試提取 Google Maps 連結...")
-        
-        # 首先嘗試從當前元素內查找
-        all_links = element.find_elements(By.TAG_NAME, "a")
-        logger.info(f"在當前元素內找到 {len(all_links)} 個 <a> 標籤")
-        
-        if len(all_links) == 0:
-            # 如果當前元素內沒有連結，嘗試從更高層級查找
-            try:
-                # 嘗試找到父容器
-                parent_container = element.find_element(By.XPATH, "./..")
-                all_links = parent_container.find_elements(By.TAG_NAME, "a")
-                logger.info(f"在父容器中找到 {len(all_links)} 個 <a> 標籤")
-            except:
-                logger.debug("無法從父容器查找連結")
-        
-        # 如果還是沒有找到，嘗試從整個頁面範圍內查找包含餐廳名稱的連結
-        if len(all_links) == 0 and restaurant_info.get('name') and driver:
-            try:
-                restaurant_name = restaurant_info['name'][:15]  # 取前15個字符
-                logger.info(f"嘗試在整個頁面搜尋包含餐廳名稱 '{restaurant_name}' 的連結...")
-                
-                # 在整個頁面範圍內查找連結，使用更精確的搜尋
-                page_links = driver.find_elements(By.XPATH, f"//a[contains(@aria-label, '{restaurant_name}') or contains(text(), '{restaurant_name}')]")
-                logger.info(f"在整個頁面找到 {len(page_links)} 個相關連結")
-                
-                for link in page_links:
-                    href = link.get_attribute('href')
-                    if href and '/maps/place/' in href:
-                        # 驗證這是真正的餐廳連結，不是純坐標連結
-                        if not (href.count('/@') > 0 and href.count('/place/') > 0 and '/' == href.split('/place/')[1].split('/')[0]):
-                            # 檢查連結是否包含餐廳信息
-                            if any(indicator in href for indicator in ['!', '0x', 'data=', restaurant_name[:10]]):
-                                all_links = [link]
-                                logger.info(f"在頁面範圍找到有效的餐廳 place 連結")
-                                break
-                        else:
-                            logger.debug(f"跳過純坐標 place 連結")
-            except Exception as e:
-                logger.debug(f"頁面範圍搜尋失敗: {e}")
-        
-        # 檢查每個連結
-        for i, link_element in enumerate(all_links):
-            try:
-                href = link_element.get_attribute('href')
-                if href:
-                    logger.debug(f"連結 {i+1}: {href[:100]}...")
-                    
-                    # 檢查是否為真實的 Google Maps 餐廳連結
-                    # 排除只有坐標的連結（如 /place//@lat,lng）
-                    if '/maps/place/' in href:
-                        # 檢查是否為有效的餐廳連結
-                        # 有效的餐廳連結應該包含餐廳名稱，而不只是坐標
-                        if not href.count('/@') > href.count('/place/') or '!' in href:
-                            # 進一步驗證連結品質
-                            if any(char in href for char in ['!', '0x', 'data=']):
-                                restaurant_info['maps_url'] = href
-                                logger.info(f"找到有效的 Google Maps Place 連結: {href[:80]}...")
-                                break
-                            else:
-                                logger.debug(f"跳過坐標位置連結: {href[:80]}...")
-                        else:
-                            logger.debug(f"跳過純坐標連結: {href[:80]}...")
-                    elif 'maps.google.com' in href and 'place_id=' in href:
-                        restaurant_info['maps_url'] = href
-                        logger.info(f"找到包含 Place ID 的連結: {href[:80]}...")
-                        break
-                    elif 'maps.google.com' in href and any(keyword in href for keyword in ['/@', '/place']):
-                        # 額外檢查，確保不是純坐標連結
-                        if '!' in href or 'data=' in href:
-                            restaurant_info['maps_url'] = href
-                            logger.info(f"找到 Google Maps 位置連結: {href[:80]}...")
-                            break
-                        else:
-                            logger.debug(f"跳過可能的坐標連結: {href[:80]}...")
-                    elif 'maps.google.com' in href:
-                        restaurant_info['maps_url'] = href
-                        logger.info(f"找到 Google Maps 連結: {href[:80]}...")
-                        break
-            except Exception as e:
-                logger.debug(f"檢查連結時出錯: {e}")
-        
-        # 如果上面的方法都沒有找到連結，嘗試其他策略
-        if not restaurant_info.get('maps_url'):
-            logger.info("嘗試其他連結查找策略...")
-            link_selectors = [
-                "a[href*='maps.google.com/maps/place']",  # 最精確的 place 連結
-                "a[href*='place_id=']",  # 包含 place_id 的連結
-                "a[href*='maps.google']",  # 直接包含 maps.google 的連結
-                "a[href*='/maps/place']",  # Google Maps place 連結
-                "a[data-cid]",  # 有 data-cid 屬性的連結
-                "a.hfpxzc",  # Google Maps 特定的連結樣式
-                "a[jsaction*='pane']",  # 有 pane 相關 jsaction 的連結
-            ]
-            
-            for selector in link_selectors:
-                try:
-                    link_elements = element.find_elements(By.CSS_SELECTOR, selector)
-                    logger.debug(f"使用選擇器 '{selector}' 找到 {len(link_elements)} 個連結元素")
-                    for link_element in link_elements:
-                        href = link_element.get_attribute('href')
-                        if href:
-                            logger.debug(f"檢查連結: {href[:100]}...")
-                            # 檢查是否為真實的 Google Maps 連結（優先級最高）
-                            # 只要包含 /maps/place 就是真實的 place 連結
-                            if '/maps/place' in href:
-                                restaurant_info['maps_url'] = href
-                                logger.info(f"找到真實 Google Maps Place 連結: {href[:80]}...")
-                                break
-                            elif 'maps.google.com' in href and 'place_id=' in href:
-                                restaurant_info['maps_url'] = href
-                                logger.info(f"找到包含 Place ID 的連結: {href[:80]}...")
-                                break
-                            elif 'maps.google.com' in href and any(keyword in href for keyword in ['/@', '/place']):
-                                restaurant_info['maps_url'] = href
-                                logger.info(f"找到 Google Maps 位置連結: {href[:80]}...")
-                                break
-                            elif 'maps.google.com' in href:
-                                # 這也是有效的 Google Maps 連結
-                                restaurant_info['maps_url'] = href
-                                logger.info(f"找到 Google Maps 連結: {href[:80]}...")
-                                break
-                        
-                        # 檢查 data-href 屬性（有時連結存在這裡）
-                        data_href = link_element.get_attribute('data-href')
-                        if data_href and 'maps.google.com' in data_href:
-                            restaurant_info['maps_url'] = data_href
-                            logger.info(f"從 data-href 提取到 Maps 連結: {data_href[:80]}...")
-                            break
-                
-                    if restaurant_info.get('maps_url'):
-                        break
-                        
-                except NoSuchElementException:
-                    continue
-        
-        # 如果上面的方法都沒有找到連結，嘗試點擊餐廳獲取真實連結
-        if not restaurant_info.get('maps_url') and driver:
-            logger.info("嘗試點擊餐廳元素以獲取真實 place 連結...")
-            try:
-                # 保存當前 URL
-                original_url = driver.current_url
-                
-                # 嘗試點擊餐廳元素
-                driver.execute_script("arguments[0].click();", element)
-                
-                # 等待頁面可能的變化
-                import time
-                time.sleep(2)
-                
-                # 檢查 URL 是否變化到 place 連結
-                current_url = driver.current_url
-                if current_url != original_url and '/maps/place/' in current_url:
-                    # 驗證這是有效的餐廳 place 連結
-                    if not (current_url.count('/@') > 0 and '/' == current_url.split('/place/')[1].split('/')[0]):
-                        restaurant_info['maps_url'] = current_url
-                        logger.info(f"通過點擊獲取到真實 place 連結: {current_url[:80]}...")
-                    else:
-                        logger.debug(f"點擊後獲取的是坐標連結，非餐廳 place 連結")
-                else:
-                    logger.debug(f"點擊後 URL 未變化為 place 連結")
-                    
-                # 如果 URL 沒有直接變化，檢查頁面上是否有新的連結
-                if not restaurant_info.get('maps_url'):
-                    try:
-                        # 在當前頁面查找所有包含餐廳名稱的 place 連結
-                        restaurant_name = restaurant_info.get('name', '')[:15]
-                        if restaurant_name:
-                            place_links = driver.find_elements(By.XPATH, 
-                                f"//a[contains(@href, '/maps/place/') and (contains(@aria-label, '{restaurant_name}') or contains(text(), '{restaurant_name}'))]")
-                            
-                            for link in place_links:
-                                href = link.get_attribute('href')
-                                if href and restaurant_name[:10] in href:
-                                    restaurant_info['maps_url'] = href
-                                    logger.info(f"在點擊後的頁面找到餐廳 place 連結: {href[:80]}...")
-                                    break
-                    except Exception as e:
-                        logger.debug(f"在點擊後頁面搜尋連結失敗: {e}")
-                
-            except Exception as e:
-                logger.debug(f"點擊餐廳元素失敗: {e}")
-        
-        # 如果沒有找到直接連結，嘗試從父級元素或 aria-label 中尋找
-        if not restaurant_info.get('maps_url'):
-            try:
-                # 尋找具有 aria-label 包含餐廳名稱的連結
-                if restaurant_info.get('name'):
-                    short_name = restaurant_info['name'][:15]  # 取前15個字符
-                    
-                    # 嘗試各種可能的連結查找方式
-                    xpath_queries = [
-                        f".//a[contains(@aria-label, '{short_name}')]",
-                        f".//a[contains(@href, 'maps.google')]",
-                        f".//a[contains(@href, 'place')]"
-                    ]
-                    
-                    for xpath in xpath_queries:
-                        try:
-                            links = element.find_elements(By.XPATH, xpath)
-                            for link in links:
-                                href = link.get_attribute('href')
-                                if href and 'maps.google.com' in href:
-                                    restaurant_info['maps_url'] = href
-                                    logger.info(f"通過 XPath 查找到 Maps 連結: {href[:80]}...")
-                                    break
-                            if restaurant_info.get('maps_url'):
-                                break
-                        except:
-                            continue
-                            
-            except Exception as e:
-                logger.debug(f"額外連結搜尋失敗: {e}")
-        
-        # 如果仍然沒有連結，嘗試構建一個基於餐廳名稱和地址的搜尋連結
-        if not restaurant_info.get('maps_url') and restaurant_info.get('name'):
-            try:
-                # 清理餐廳名稱，移除過長的描述和特殊字符
-                clean_name = restaurant_info['name']
-                
-                # 移除過長的描述性文字（超過50字符的部分通常是廣告文字）
-                if len(clean_name) > 50:
-                    # 尋找第一個 '-' 或 '|' 或 '(' 來截斷
-                    for delimiter in ['-', '|', '(', '（']:
-                        if delimiter in clean_name:
-                            clean_name = clean_name.split(delimiter)[0].strip()
-                            break
-                    
-                    # 如果還是太長，只取前30個字符
-                    if len(clean_name) > 30:
-                        clean_name = clean_name[:30].strip()
-                
-                # 移除特殊字符和多餘空格
-                clean_name = re.sub(r'[^\w\u4e00-\u9fff\s]', ' ', clean_name)  # 保留中文、英文、數字、空格
-                clean_name = re.sub(r'\s+', ' ', clean_name).strip()  # 合併多個空格
-                
-                # 構建搜尋查詢
-                search_query = clean_name
-                if restaurant_info.get('address'):
-                    # 也清理地址，移除過長的部分
-                    clean_address = restaurant_info['address']
-                    if len(clean_address) > 50:
-                        # 通常地址的主要部分在前面
-                        clean_address = clean_address[:50]
-                    search_query += f" {clean_address}"
-                
-                # 確保查詢不會太長
-                if len(search_query) > 100:
-                    search_query = search_query[:100]
-                
-                # 正確的 URL 編碼
-                encoded_query = quote(search_query, safe='', encoding='utf-8')
-                constructed_url = f"https://www.google.com/maps/search/{encoded_query}"
-                restaurant_info['maps_url'] = constructed_url
-                logger.info(f"構建搜尋連結 (清理後名稱: {clean_name}): {constructed_url[:80]}...")
-            except Exception as e:
-                logger.debug(f"構建連結失敗: {e}")
-        
-        # 提取地址 - 針對新版 Google Maps 結構改進策略
-        address_patterns = [
-            # 完整台灣地址格式（門牌號碼在前）
-            r'[\u4e00-\u9fff]*[路街巷弄大道][^\s]*\d+[-\d]*號[^\s]*',
-            # 完整台灣地址格式
-            r'\d{3}[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街巷弄大道][^\s]*號?[^\s]*',
-            # 中文地址格式（含郵遞區號）
-            r'\d{3}[\u4e00-\u9fff]+[市縣][^\s]+',
-            # 標準地址格式
-            r'[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街巷弄大道][^\s]*號?[^\s]*',
-            # 簡化地址格式
-            r'[\u4e00-\u9fff]+[市縣][^\s]{2,}[區鄉鎮市][^\s]*[路街巷弄][^\s]*號?',
-            # 包含段的地址
-            r'[\u4e00-\u9fff]+[路街大道][^\s]*段[^\s]*號?[^\s]*',
-            # 包含巷弄的地址
-            r'[\u4e00-\u9fff]+[路街][^\s]*巷[^\s]*號?[^\s]*',
-            # 路名 + 號碼的簡單格式
-            r'[\u4e00-\u9fff]+[路街大道]\d+[-\d]*號?',
-            # 商圈或地標
-            r'[\u4e00-\u9fff]+[商圈夜市車站]',
-            # 包含"市"和"區"的基本格式
-            r'[\u4e00-\u9fff]+市[\u4e00-\u9fff]+區[\u4e00-\u9fff]+',
-        ]
-        
-        try:
-            # 從整個元素的文字中尋找地址
-            full_text = element.text
-            potential_addresses = []
-            
-            for pattern in address_patterns:
-                matches = re.findall(pattern, full_text)
-                if matches:
-                    potential_addresses.extend(matches)
-            
-            # 驗證和選擇最佳地址
-            if potential_addresses:
-                best_address = validate_and_select_best_address(potential_addresses)
-                if best_address:
-                    restaurant_info['address'] = best_address
-                    logger.info(f"從文字中提取到地址: {best_address}")
-        except Exception as e:
-            logger.warning(f"地址模式匹配失敗: {e}")
-        
-        # 如果還是沒有地址，嘗試特定的地址選擇器
-        if not restaurant_info['address']:
-            address_selectors = [
-                "div.W4Efsd:last-child span.ZDu9vd",  # 新版 Google Maps 地址
-                "div.W4Efsd span.ZDu9vd",  # 地址容器
-                ".rllt__details div",  # 詳細資訊區域
-                "span.LrzXr",  # 地址專用樣式
-                ".BNeawe.UPmit.AP7Wnd",  # 另一種地址樣式
-                "div span",  # 通用 span 元素
-                ".dbg0pd div",  # 容器內的 div
-                ".UaQhfb span",  # Maps 容器內的 span
-                ".Nv2PK span",  # 新版容器內的 span
-                "div.rllt__details span",  # 詳細資訊內的 span
-                ".OSrXXb",  # 文字內容樣式
-                "div[data-attrid='kc:/location/location:address']",  # 地址屬性
-                "span[data-attrid='kc:/location/location:address']"  # 地址屬性 span
-            ]
-            
-            for selector in address_selectors:
-                try:
-                    addr_elements = element.find_elements(By.CSS_SELECTOR, selector)
-                    for addr_elem in addr_elements:
-                        addr_text = addr_elem.text.strip()
-                        if is_valid_taiwan_address(addr_text):
-                            cleaned_addr = clean_address(addr_text)
-                            # 進一步驗證清理後的地址
-                            if len(cleaned_addr) > 5 and is_complete_address(cleaned_addr):
-                                restaurant_info['address'] = cleaned_addr
-                                break
-                    if restaurant_info['address']:
-                        break
-                except Exception as e:
-                    logger.debug(f"地址選擇器 {selector} 失敗: {e}")
-                    continue
-        
-        # 如果仍然沒有完整地址，嘗試從 Maps URL 或其他來源補全
-        if not restaurant_info['address'] or not is_complete_address(restaurant_info['address']):
-            if restaurant_info.get('maps_url'):
-                try:
-                    # 嘗試從 Google Maps URL 提取更完整的地址
-                    enhanced_address = extract_address_from_maps_url(restaurant_info['maps_url'])
-                    if enhanced_address and is_complete_address(enhanced_address):
-                        restaurant_info['address'] = enhanced_address
-                        logger.info(f"從 Maps URL 補全地址: {enhanced_address}")
-                except Exception as e:
-                    logger.debug(f"從 Maps URL 提取地址失敗: {e}")
-        
-        # 提取評分
-        rating_selectors = [
-            "span.yi40Hd",
-            ".BTtC6e",
-            "span[aria-label*='顆星']",
-            "span[aria-label*='stars']"
-        ]
-        
-        for selector in rating_selectors:
-            try:
-                rating_element = element.find_element(By.CSS_SELECTOR, selector)
-                rating_text = rating_element.text.strip()
-                # 提取數字評分
-                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                if rating_match:
-                    rating_value = float(rating_match.group(1))
-                    if 0 <= rating_value <= 5:  # 確保評分在合理範圍
-                        restaurant_info['rating'] = rating_value
-                        break
-            except (NoSuchElementException, ValueError):
-                continue
-        
-        # 提取平均價格
-        price_patterns = [
-            r'\$(\d{2,4})-(\d{2,4})',  # $100-300 格式（至少2位數）
-            r'NT\$(\d{2,4})-(\d{2,4})',  # NT$100-300 格式
-            r'(\d{2,4})-(\d{2,4})元',  # 100-300元 格式
-            r'\$(\d{2,4})\+',  # $100+ 格式
-            r'NT\$(\d{2,4})\+',  # NT$100+ 格式
-            r'(\d{2,4})元以上',  # 100元以上 格式
-            r'\$(\d{2,4})',  # 單一價格 $100（至少2位數）
-            r'NT\$(\d{2,4})',  # 單一價格 NT$100
-            r'(\d{2,4})元'  # 單一價格 100元
-        ]
-        
-        try:
-            full_text = element.text
-            for pattern in price_patterns:
-                price_match = re.search(pattern, full_text)
-                if price_match:
-                    groups = price_match.groups()
-                    if len(groups) == 2:  # 價格區間
-                        try:
-                            low_price = int(groups[0])
-                            high_price = int(groups[1])
-                            # 確保價格合理且邏輯正確
-                            if (10 <= low_price <= 10000 and 10 <= high_price <= 10000 and 
-                                low_price < high_price):
-                                restaurant_info['price_level'] = f"${low_price}-{high_price}"
-                                logger.info(f"提取到價格區間: ${low_price}-{high_price}")
-                                break
-                        except ValueError:
-                            continue
-                    elif len(groups) == 1:  # 單一價格或起始價格
-                        try:
-                            price = int(groups[0])
-                            # 確保價格合理（最低10元，避免錯誤解析）
-                            if 10 <= price <= 10000:
-                                if '+' in price_match.group(0) or '以上' in price_match.group(0):
-                                    restaurant_info['price_level'] = f"${price}+"
-                                    logger.info(f"提取到起始價格: ${price}+")
-                                else:
-                                    restaurant_info['price_level'] = f"${price}"
-                                    logger.info(f"提取到單一價格: ${price}")
-                                break
-                        except ValueError:
-                            continue
-        except Exception as e:
-            logger.debug(f"價格提取失敗: {e}")
-        
-        # 如果沒有通過文字提取到價格，嘗試特定的價格選擇器
-        if not restaurant_info.get('price_level'):
-            price_selectors = [
-                "span.UY7F9",  # Google Maps 價格樣式
-                ".r4GTf",  # 另一種價格樣式
-                "span[aria-label*='價格']",  # 含價格的 aria-label
-                "span[aria-label*='Price']",  # 英文價格 aria-label
-                ".BNeawe.deIvCb.AP7Wnd"  # 其他價格樣式
-            ]
-            
-            for selector in price_selectors:
-                try:
-                    price_element = element.find_element(By.CSS_SELECTOR, selector)
-                    price_text = price_element.text.strip()
-                    
-                    # 使用相同的價格模式匹配
-                    for pattern in price_patterns:
-                        price_match = re.search(pattern, price_text)
-                        if price_match:
-                            groups = price_match.groups()
-                            if len(groups) == 2:
-                                try:
-                                    low_price = int(groups[0])
-                                    high_price = int(groups[1])
-                                    if 1 <= low_price <= 10000 and 1 <= high_price <= 10000:
-                                        restaurant_info['price_level'] = f"${low_price}-{high_price}"
-                                        logger.info(f"使用選擇器 {selector} 提取到價格區間: ${low_price}-{high_price}")
-                                        break
-                                except ValueError:
-                                    continue
-                            elif len(groups) == 1:
-                                try:
-                                    price = int(groups[0])
-                                    if 1 <= price <= 10000:
-                                        if '+' in price_match.group(0) or '以上' in price_match.group(0):
-                                            restaurant_info['price_level'] = f"${price}+"
-                                        else:
-                                            restaurant_info['price_level'] = f"${price}"
-                                        logger.info(f"使用選擇器 {selector} 提取到價格: {restaurant_info['price_level']}")
-                                        break
-                                except ValueError:
-                                    continue
-                    if restaurant_info.get('price_level'):
-                        break
-                except (NoSuchElementException, ValueError):
-                    continue
-        
-        # 計算距離 - 優先使用地址，然後嘗試其他方法
-        if location_info and location_info.get('coords'):
-            distance_calculated = False
-            
-            # 方法1：使用餐廳地址計算距離
-            if restaurant_info.get('address'):
-                try:
-                    restaurant_coords = geocode_address(restaurant_info['address'])
-                    if restaurant_coords:
-                        distance = calculate_distance(location_info['coords'], restaurant_coords)
-                        if distance is not None:
-                            restaurant_info['distance_km'] = distance
-                            distance_calculated = True
-                            logger.info(f"距離計算成功（地址方法）: {distance} km")
-                except Exception as e:
-                    logger.debug(f"地址距離計算失敗: {e}")
-            
-            # 方法2：如果地址方法失敗，使用估算距離
-            if not distance_calculated:
-                try:
-                    # 根據餐廳名稱估算合理距離（搜尋結果通常按距離排序）
-                    estimated_distance = 3.0  # 預設3公里範圍
-                    restaurant_info['distance_km'] = estimated_distance
-                    logger.info(f"使用估算距離: {estimated_distance} km")
-                except Exception as e:
-                    logger.debug(f"估算距離失敗: {e}")
-                    restaurant_info['distance_km'] = None
-        
-        # 只有在有名稱時才返回結果
-        if restaurant_info['name']:
-            return restaurant_info
-        else:
-            return None
-        
-    except Exception as e:
-        logger.error(f"提取餐廳資訊失敗: {e}")
-        return None
+    # 直接調用精簡版本，大幅提升速度
+    return extract_restaurant_info_minimal(element, location_info)
 
 def is_restaurant_relevant(restaurant_name: str, keyword: str) -> bool:
     """
@@ -1574,8 +1388,17 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
                 }
                 logger.warning(f"無法獲得地址座標，僅用於搜尋: {user_address}")
     
-    # 使用 Selenium 搜尋
-    results = search_restaurants_selenium(keyword, location_info, max_results)
+    # 使用並行搜尋（優先）或傳統 Selenium 搜尋
+    try:
+        results = search_restaurants_parallel(keyword, location_info, max_results)
+        if results:
+            logger.info(f"🚀 並行搜尋成功找到 {len(results)} 個結果")
+        else:
+            logger.info("並行搜尋無結果，嘗試傳統 Selenium 搜尋")
+            results = search_restaurants_selenium(keyword, location_info, max_results)
+    except Exception as e:
+        logger.warning(f"並行搜尋失敗: {e}，使用傳統搜尋")
+        results = search_restaurants_selenium(keyword, location_info, max_results)
     
     # 如果 Selenium 失敗，使用備用方案
     if not results:
@@ -1769,3 +1592,16 @@ def test_search():
 
 if __name__ == "__main__":
     test_search()
+
+# 清理函數
+def cleanup_resources():
+    """清理系統資源"""
+    try:
+        browser_pool.close_all()
+        logger.info("✅ 資源清理完成")
+    except Exception as e:
+        logger.error(f"❌ 資源清理失敗: {e}")
+
+# 確保程序退出時清理資源
+import atexit
+atexit.register(cleanup_resources)

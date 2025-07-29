@@ -1,5 +1,8 @@
 # modules/ai_recommendation_engine.py
 from datetime import datetime
+import concurrent.futures
+import asyncio
+from typing import List, Dict, Any
 from modules.sweat_index import query_sweat_index_by_location
 from modules.google_maps import search_restaurants
 from modules.dialog_analysis import (
@@ -52,36 +55,54 @@ class SmartRecommendationEngine:
             # TODO: 這裡應該有機制讓前端先顯示計劃，然後再繼續搜尋
             # 現在暫時直接繼續執行搜尋
             
-            # 4. 開始實際搜尋餐廳（混搭多種類型）
-            print(f"🔍 開始搜尋餐廳...")
-            print(f"🔍 搜尋策略：混搭多種餐點類型")
+            # 4. 開始實際搜尋餐廳（並行搜尋多種類型）
+            print(f"� 開始並行搜尋餐廳...")
+            print(f"🔍 搜尋策略：並行混搭多種餐點類型")
             
             all_restaurants = []
             
             # 搜尋多個關鍵字類型，每種類型限制數量
             search_limit_per_type = max(2, max_results // len(search_keywords))
             
-            for i, keyword in enumerate(search_keywords[:3], 1):  # 限制前3種類型避免太慢
-                print(f"� [{i}/{min(3, len(search_keywords))}] 搜尋「{keyword}」相關餐廳...")
+            # 使用 ThreadPoolExecutor 並行搜尋
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:  # 只用1個worker
+                # 提交搜尋任務
+                future_to_keyword = {}
+                keywords_to_search = search_keywords[:2]  # 只搜尋前2種類型
                 
-                try:
-                    restaurants = search_restaurants(
+                for keyword in keywords_to_search:
+                    future = executor.submit(
+                        search_restaurants,
                         keyword=keyword,
                         user_address=location,
                         max_results=search_limit_per_type
                     )
+                    future_to_keyword[future] = keyword
+                
+                print(f"📡 已提交 {len(keywords_to_search)} 個並行搜尋任務")
+                
+                # 收集結果
+                completed_searches = 0
+                for future in concurrent.futures.as_completed(future_to_keyword):
+                    keyword = future_to_keyword[future]
+                    completed_searches += 1
                     
-                    if restaurants:
-                        print(f"   ✅ 找到 {len(restaurants)} 家「{keyword}」餐廳")
-                        # 為每家餐廳添加類型標籤
-                        for rest in restaurants:
-                            rest['food_type'] = keyword
-                        all_restaurants.extend(restaurants)
-                    else:
-                        print(f"   ⚠️ 「{keyword}」搜尋無結果")
+                    try:
+                        restaurants = future.result()
                         
-                except Exception as e:
-                    print(f"   ❌ 搜尋「{keyword}」時發生錯誤: {e}")
+                        if restaurants:
+                            print(f"   ✅ [{completed_searches}/{len(keywords_to_search)}] 「{keyword}」找到 {len(restaurants)} 家餐廳")
+                            # 為每家餐廳添加類型標籤
+                            for rest in restaurants:
+                                rest['food_type'] = keyword
+                            all_restaurants.extend(restaurants)
+                        else:
+                            print(f"   ⚠️ [{completed_searches}/{len(keywords_to_search)}] 「{keyword}」搜尋無結果")
+                            
+                    except Exception as e:
+                        print(f"   ❌ [{completed_searches}/{len(keywords_to_search)}] 搜尋「{keyword}」時發生錯誤: {e}")
+                
+                print(f"🎉 並行搜尋完成！總共收集到 {len(all_restaurants)} 家餐廳")
             
             # 5. 依距離升冪排序（近距離優先）
             print(f"📊 正在依距離排序...")
