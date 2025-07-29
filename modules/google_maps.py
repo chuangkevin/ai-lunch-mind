@@ -521,10 +521,14 @@ def geocode_address(address: str) -> Optional[Tuple[float, float]]:
     except Exception:
         pass
     
-    # 方法3: 嘗試 Google Maps API 格式解析 (備用)
+    # 方法3: 只對完整地址嘗試簡化解析
     try:
-        # 如果地址看起來像是從 Google Maps 複製的格式
-        if '號' in address or ('路' in address and ('段' in address or '巷' in address)):
+        # 檢查地址是否足夠完整
+        if (len(address) > 12 and 
+            any(city in address for city in ['市', '縣']) and
+            any(road in address for road in ['路', '街', '大道']) and
+            ('號' in address or '段' in address or '巷' in address)):
+            
             # 嘗試更簡化的查詢
             simplified_parts = []
             
@@ -543,14 +547,16 @@ def geocode_address(address: str) -> Optional[Tuple[float, float]]:
             if road_match:
                 simplified_parts.append(road_match.group(1))
             
-            if simplified_parts:
+            if len(simplified_parts) >= 2:  # 至少要有2個部分才進行簡化查詢
                 simplified_address = ''.join(simplified_parts) + ", Taiwan"
                 geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
                 location = geolocator.geocode(simplified_address)
                 if location and 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
-                    logger.info(f"簡化地址解析成功: {simplified_address} -> ({location.latitude}, {location.longitude})")
+                    logger.info(f"完整地址簡化解析成功: {simplified_address} -> ({location.latitude}, {location.longitude})")
                     return (location.latitude, location.longitude)
-    
+        else:
+            logger.info(f"地址不夠完整，跳過簡化解析: {address}")
+
     except Exception as e:
         logger.warning(f"簡化地址解析失敗: {e}")
     
@@ -1128,7 +1134,7 @@ def sort_restaurants_by_distance(restaurants: List[Dict[str, Any]], user_coords:
 
 def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
     """
-    最精簡的餐廳資訊提取 - 只獲取名稱和基本資訊
+    精簡但完整的餐廳資訊提取 - 獲取名稱、地址、評分、價格
     
     :param element: 搜尋結果元素
     :param location_info: 位置資訊
@@ -1139,12 +1145,16 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         'name': '',
         'address': '',
         'rating': None,
-        'distance_km': 3.0  # 預設距離
+        'price_level': None,
+        'distance_km': None,
+        'maps_url': '',
+        'phone': '',
+        'review_count': None
     }
     
     try:
-        # 只提取名稱 - 使用最快的選擇器
-        name_selectors = ["span.OSrXXb", "h3.LC20lb", "div.qBF1Pd"]
+        # 提取名稱
+        name_selectors = ["span.OSrXXb", "h3.LC20lb", "div.qBF1Pd", "span.LrzXr"]
         
         for selector in name_selectors:
             try:
@@ -1159,19 +1169,235 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         if not restaurant_info['name']:
             return None
         
-        # 快速提取評分 (可選)
+        # 提取地址 - 使用更廣泛的選擇器和文字分析
+        address_found = False
+        
+        # 方法1: 使用特定選擇器
+        address_selectors = [
+            "div.W4Efsd span.ZDu9vd",  # Google Maps 地址
+            "span.LrzXr",  # 地址專用樣式
+            ".BNeawe.UPmit.AP7Wnd",  # 另一種地址樣式
+            "div.rllt__details div",  # 詳細資訊區域
+            "div[data-value*='地址']",  # 包含地址的 div
+            "span[title*='地址']",  # 標題包含地址的 span
+        ]
+        
+        for selector in address_selectors:
+            try:
+                address_elements = element.find_elements(By.CSS_SELECTOR, selector)
+                for addr_elem in address_elements:
+                    addr_text = addr_elem.text.strip()
+                    # 檢查是否為完整的台灣地址（必須包含城市或區域）
+                    if (addr_text and len(addr_text) > 8 and  # 提高最小長度要求
+                        any(keyword in addr_text for keyword in ['市', '縣', '區', '鄉', '鎮']) and  # 必須包含行政區域
+                        any(keyword in addr_text for keyword in ['路', '街', '巷', '號']) and  # 必須包含道路資訊
+                        not any(avoid in addr_text for avoid in ['評論', '星', '公里', '分鐘', '營業', '電話', '網站'])):  # 避免非地址資訊
+                        restaurant_info['address'] = addr_text
+                        address_found = True
+                        break
+                if address_found:
+                    break
+            except:
+                continue
+        
+        # 方法2: 如果特定選擇器失敗，從完整文字中提取地址
+        if not address_found:
+            try:
+                full_text = element.text
+                # 台灣地址模式 - 確保提取完整地址
+                address_patterns = [
+                    # 完整地址：城市+區+路+號
+                    r'[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街巷弄大道][^\s]*\d+[號]?[^\s]*',
+                    # 包含郵遞區號的地址
+                    r'\d{3}[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街][^\s]*\d+[號]?',
+                    # 至少有城市+路名+號碼
+                    r'[\u4e00-\u9fff]+[市縣][^\s]*[\u4e00-\u9fff]*[路街大道]\d+[號]?',
+                ]
+                
+                for pattern in address_patterns:
+                    matches = re.findall(pattern, full_text)
+                    if matches:
+                        # 選擇最完整的地址
+                        best_address = max(matches, key=len)
+                        if len(best_address) > 5:
+                            restaurant_info['address'] = best_address.strip()
+                            address_found = True
+                            break
+            except:
+                pass
+        
+        # 方法3: 如果還是沒有地址，檢查所有 span 元素
+        if not address_found:
+            try:
+                spans = element.find_elements(By.TAG_NAME, "span")
+                for span in spans:
+                    span_text = span.text.strip()
+                    # 檢查是否像完整地址 - 更嚴格的條件
+                    if (span_text and len(span_text) > 12 and  # 增加最小長度
+                        any(city in span_text for city in ['市', '縣']) and  # 必須包含城市
+                        any(road in span_text for road in ['路', '街']) and  # 必須包含道路
+                        ('號' in span_text or re.search(r'\d+', span_text)) and  # 必須包含號碼
+                        not any(avoid in span_text for avoid in ['評論', '星', '公里', '分鐘', '營業', '電話', '網站', 'Google', 'Maps'])):
+                        restaurant_info['address'] = span_text
+                        break
+            except:
+                pass
+        
+        # 提取評分 - 使用更多選擇器
+        rating_selectors = [
+            "span.yi40Hd",      # 主要評分樣式
+            "span.MW4etd",      # 另一種評分樣式
+            ".BTtC6e",          # 其他評分樣式
+            "span[aria-label*='star']",  # 包含 star 的 aria-label
+            "span[aria-label*='星']",    # 包含中文星的 aria-label
+        ]
+        
+        for selector in rating_selectors:
+            try:
+                rating_element = element.find_element(By.CSS_SELECTOR, selector)
+                rating_text = rating_element.text.strip()
+                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                if rating_match:
+                    rating_value = float(rating_match.group(1))
+                    if 0 <= rating_value <= 5:  # 確保評分在合理範圍
+                        restaurant_info['rating'] = rating_value
+                        break
+            except:
+                continue
+        
+        # 如果上面的方法都失敗，嘗試從 aria-label 或文字中提取
+        if restaurant_info['rating'] is None:
+            try:
+                # 檢查所有 span 的 aria-label
+                spans = element.find_elements(By.TAG_NAME, "span")
+                for span in spans:
+                    aria_label = span.get_attribute('aria-label') or ''
+                    span_text = span.text.strip()
+                    
+                    # 從 aria-label 或文字中找評分
+                    for text in [aria_label, span_text]:
+                        if text:
+                            rating_match = re.search(r'(\d+\.?\d*)\s*(?:星|star)', text, re.IGNORECASE)
+                            if rating_match:
+                                rating_value = float(rating_match.group(1))
+                                if 0 <= rating_value <= 5:
+                                    restaurant_info['rating'] = rating_value
+                                    break
+                    if restaurant_info['rating'] is not None:
+                        break
+            except:
+                pass
+        
+        # 提取評論數 - 使用更多方法
+        review_selectors = [
+            "span.RDApEe",           # 主要評論樣式
+            "a[href*='reviews']",     # 評論連結
+            "span[aria-label*='review']",  # 包含 review 的 aria-label
+            "span[aria-label*='則評論']",   # 中文評論 aria-label
+        ]
+        
+        for selector in review_selectors:
+            try:
+                review_element = element.find_element(By.CSS_SELECTOR, selector)
+                review_text = review_element.text.strip()
+                
+                # 嘗試多種評論數格式
+                review_patterns = [
+                    r'\((\d+)\)',           # (123) 格式
+                    r'(\d+)\s*則評論',        # 123則評論 格式
+                    r'(\d+)\s*reviews?',     # 123 reviews 格式
+                    r'(\d+)\s*評論',         # 123評論 格式
+                ]
+                
+                for pattern in review_patterns:
+                    review_match = re.search(pattern, review_text, re.IGNORECASE)
+                    if review_match:
+                        restaurant_info['review_count'] = int(review_match.group(1))
+                        break
+                
+                if restaurant_info['review_count'] is not None:
+                    break
+            except:
+                continue
+        
+        # 如果還是沒有找到，檢查完整文字
+        if restaurant_info['review_count'] is None:
+            try:
+                full_text = element.text
+                review_patterns = [
+                    r'\((\d+)\)',
+                    r'(\d+)\s*則評論',
+                    r'(\d+)\s*reviews?',
+                    r'(\d+)\s*評論',
+                ]
+                
+                for pattern in review_patterns:
+                    review_match = re.search(pattern, full_text, re.IGNORECASE)
+                    if review_match:
+                        count = int(review_match.group(1))
+                        if count > 0 and count < 100000:  # 合理範圍檢查
+                            restaurant_info['review_count'] = count
+                            break
+            except:
+                pass
+        
+        # 提取價格資訊
         try:
-            rating_element = element.find_element(By.CSS_SELECTOR, "span.yi40Hd")
-            rating_text = rating_element.text.strip()
-            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-            if rating_match:
-                restaurant_info['rating'] = float(rating_match.group(1))
+            full_text = element.text
+            price_patterns = [
+                r'\$(\d{2,4})-(\d{2,4})',  # $100-300 格式
+                r'NT\$(\d{2,4})-(\d{2,4})',  # NT$100-300 格式
+                r'(\d{2,4})-(\d{2,4})元',  # 100-300元 格式
+                r'\$(\d{2,4})\+',  # $100+ 格式
+                r'(\d{2,4})元',  # 100元 格式
+            ]
+            
+            for pattern in price_patterns:
+                price_match = re.search(pattern, full_text)
+                if price_match:
+                    groups = price_match.groups()
+                    if len(groups) == 2:  # 價格區間
+                        try:
+                            low_price = int(groups[0])
+                            high_price = int(groups[1])
+                            if 10 <= low_price <= 5000 and 10 <= high_price <= 5000 and low_price < high_price:
+                                restaurant_info['price_level'] = f"${low_price}-{high_price}"
+                                break
+                        except ValueError:
+                            continue
+                    elif len(groups) == 1:  # 單一價格
+                        try:
+                            price = int(groups[0])
+                            if 10 <= price <= 5000:
+                                if '+' in price_match.group(0):
+                                    restaurant_info['price_level'] = f"${price}+"
+                                else:
+                                    restaurant_info['price_level'] = f"${price}"
+                                break
+                        except ValueError:
+                            continue
         except:
             pass
+        
+        # 計算距離（如果有位置資訊和地址）
+        if location_info and location_info.get('coords') and restaurant_info.get('address'):
+            try:
+                restaurant_coords = geocode_address(restaurant_info['address'])
+                if restaurant_coords:
+                    distance = calculate_distance(location_info['coords'], restaurant_coords)
+                    if distance is not None:
+                        restaurant_info['distance_km'] = distance
+            except:
+                pass
+        
+        # 如果沒有距離，設為 None（不要設預設值）
+        if restaurant_info['distance_km'] is None:
+            restaurant_info['distance_km'] = None
         
         return restaurant_info
         
     except Exception as e:
+        logger.debug(f"提取餐廳資訊失敗: {e}")
         return None
 
 def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = None, max_results: int = 10) -> List[Dict[str, Any]]:
