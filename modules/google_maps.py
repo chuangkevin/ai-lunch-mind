@@ -470,18 +470,94 @@ def normalize_taiwan_address(address: str) -> str:
     
     return address
 
-def geocode_address(address: str) -> Optional[Tuple[float, float]]:
+def smart_address_completion(address: str, search_location: Optional[str] = None) -> str:
     """
-    將地址轉換為座標 - 改進版本，支援多重地理編碼服務
+    智能地址補全，根據搜尋位置推斷完整地址
+    :param address: 原始地址
+    :param search_location: 搜尋位置參考
+    :return: 補全後的地址
+    """
+    if not address:
+        return address
+    
+    # 城市區域對應表
+    city_district_mapping = {
+        '台北市': ['中正區', '大同區', '中山區', '松山區', '大安區', '萬華區', '信義區', '士林區', '北投區', '內湖區', '南港區', '文山區'],
+        '新北市': ['板橋區', '三重區', '中和區', '永和區', '新莊區', '新店區', '樹林區', '鶯歌區', '三峽區', '淡水區', '汐止區', '瑞芳區', '土城區', 
+                   '蘆洲區', '五股區', '泰山區', '林口區', '深坑區', '石碇區', '坪林區', '石門區', '八里區', '平溪區', '雙溪區', '貢寮區', 
+                   '金山區', '萬里區', '烏來區'],
+        '桃園市': ['桃園區', '中壢區', '大溪區', '楊梅區', '蘆竹區', '大園區', '龜山區', '八德區', '龍潭區', '平鎮區', '新屋區', '觀音區', '復興區'],
+        '台中市': ['中區', '東區', '南區', '西區', '北區', '北屯區', '西屯區', '南屯區', '太平區', '大里區', '霧峰區', '烏日區', '豐原區',
+                  '后里區', '石岡區', '東勢區', '和平區', '新社區', '潭子區', '大雅區', '神岡區', '大肚區', '沙鹿區', '龍井區', '梧棲區',
+                  '清水區', '大甲區', '外埔區', '大安區'],
+        '台南市': ['中西區', '東區', '南區', '北區', '安平區', '安南區', '永康區', '歸仁區', '新化區', '左鎮區', '玉井區', '楠西區',
+                  '南化區', '仁德區', '關廟區', '龍崎區', '官田區', '麻豆區', '佳里區', '西港區', '七股區', '將軍區', '學甲區',
+                  '北門區', '新營區', '後壁區', '白河區', '東山區', '六甲區', '下營區', '柳營區', '鹽水區', '善化區', '大內區',
+                  '山上區', '新市區', '安定區'],
+        '高雄市': ['新興區', '前金區', '苓雅區', '鹽埕區', '鼓山區', '旗津區', '前鎮區', '三民區', '楠梓區', '小港區', '左營區',
+                  '仁武區', '大社區', '東沙群島', '南沙群島', '岡山區', '路竹區', '阿蓮區', '田寮區', '燕巢區', '橋頭區', '梓官區',
+                  '彌陀區', '永安區', '湖內區', '鳳山區', '大寮區', '林園區', '鳥松區', '大樹區', '旗山區', '美濃區', '六龜區',
+                  '內門區', '杉林區', '甲仙區', '桃源區', '那瑪夏區', '茂林區', '茄萣區']
+    }
+    
+    # 如果地址已經包含區，直接返回
+    if any(district in address for district in ['區', '鄉', '鎮']):
+        return address
+    
+    # 檢查地址是否以城市開頭但缺少行政區
+    for city, districts in city_district_mapping.items():
+        if address.startswith(city):
+            # 嘗試根據搜尋位置推斷區域
+            if search_location:
+                # 車站或機場等地標的區域推斷
+                landmark_district_map = {
+                    '台北車站': '中正區', '台北': '中正區',
+                    '板橋車站': '板橋區', '板橋': '板橋區',
+                    '桃園機場': '大園區', '桃園': '桃園區',
+                    '台中車站': '中區', '台中': '中區',
+                    '高雄車站': '三民區', '高雄': '三民區',
+                    '台南車站': '東區', '台南': '東區'
+                }
+                
+                for landmark, district in landmark_district_map.items():
+                    if landmark in search_location and district in districts:
+                        # 在城市名稱後插入區域
+                        remaining = address[len(city):]
+                        return f"{city}{district}{remaining}"
+            
+            # 如果無法推斷，使用該城市最主要的區域
+            main_districts = {
+                '台北市': '中正區',
+                '新北市': '板橋區', 
+                '桃園市': '桃園區',
+                '台中市': '中區',
+                '台南市': '中西區',
+                '高雄市': '新興區'
+            }
+            
+            if city in main_districts:
+                remaining = address[len(city):]
+                return f"{city}{main_districts[city]}{remaining}"
+    
+    return address
+
+def geocode_address(address: str, search_location: Optional[str] = None) -> Optional[Tuple[float, float]]:
+    """
+    將地址轉換為座標 - 改進版本，支援多重地理編碼服務和智能地址補全
     :param address: 地址字串
+    :param search_location: 搜尋位置參考，用於地址補全
     :return: (latitude, longitude) 或 None
     """
     if not address or len(address.strip()) < 3:
         return None
     
+    # 智能地址補全
+    completed_address = smart_address_completion(address, search_location)
+    logger.info(f"地址補全: {address} -> {completed_address}")
+    
     # 標準化地址
-    normalized_address = normalize_taiwan_address(address)
-    logger.info(f"標準化地址: {address} -> {normalized_address}")
+    normalized_address = normalize_taiwan_address(completed_address)
+    logger.info(f"標準化地址: {completed_address} -> {normalized_address}")
     
     # 嘗試多種地址格式
     address_variants = [
@@ -523,8 +599,8 @@ def geocode_address(address: str) -> Optional[Tuple[float, float]]:
     
     # 方法3: 只對完整地址嘗試簡化解析
     try:
-        # 檢查地址是否足夠完整
-        if (len(address) > 12 and 
+        # 檢查地址是否足夠完整 - 放寬長度要求
+        if (len(address) > 8 and 
             any(city in address for city in ['市', '縣']) and
             any(road in address for road in ['路', '街', '大道']) and
             ('號' in address or '段' in address or '巷' in address)):
@@ -537,13 +613,13 @@ def geocode_address(address: str) -> Optional[Tuple[float, float]]:
             if city_match:
                 simplified_parts.append(city_match.group(1))
             
-            # 提取區/鄉/鎮
-            district_match = re.search(r'([\u4e00-\u9fff]+[區鄉鎮市])', address)
+            # 提取區/鄉/鎮 (更精確的匹配)
+            district_match = re.search(r'([^市縣]+[區鄉鎮])', address)
             if district_match:
                 simplified_parts.append(district_match.group(1))
             
-            # 提取主要道路
-            road_match = re.search(r'([\u4e00-\u9fff]+[路街大道])', address)
+            # 提取主要道路 (更精確的匹配)
+            road_match = re.search(r'([^區鄉鎮市縣]+[路街大道])', address.replace(''.join(simplified_parts), ''))
             if road_match:
                 simplified_parts.append(road_match.group(1))
             
@@ -719,7 +795,7 @@ def is_complete_address(address: str) -> bool:
     :param address: 地址字串
     :return: 是否完整
     """
-    if not address or len(address.strip()) < 8:
+    if not address or len(address.strip()) < 6:  # 放寬長度要求
         return False
     
     address = address.strip()
@@ -730,16 +806,20 @@ def is_complete_address(address: str) -> bool:
     has_road = any(keyword in address for keyword in ['路', '街', '大道', '巷', '弄'])
     has_number = bool(re.search(r'\d+號', address))
     
-    # 至少需要 3 個要素且必須包含門牌號才算完整
+    # 計算完整性評分
     completeness_score = sum([has_city, has_district, has_road, has_number])
     
-    # 如果有郵遞區號，可以稍微降低要求，但仍需要門牌號
+    # 如果有郵遞區號，可以稍微降低要求
     has_postal = bool(re.match(r'^\d{3}', address))
     if has_postal:
-        return completeness_score >= 3 and has_number
+        return completeness_score >= 3
     
-    # 一般情況下，需要4個要素都有或至少3個且包含門牌號
-    return (completeness_score >= 4) or (completeness_score >= 3 and has_number)
+    # 放寬條件：有城市+區+路即可算完整，不強制要求門牌號
+    if has_city and has_district and has_road:
+        return True
+    
+    # 或者需要4個要素都有
+    return completeness_score >= 4
 
 def extract_address_from_maps_url(maps_url: str) -> Optional[str]:
     """
@@ -1080,7 +1160,7 @@ def execute_search_strategy_with_pool(strategy: Dict, location_info: Optional[Di
             # 提取餐廳資訊（限制數量避免過載）
             for element in result_elements[:8]:  # 減少到 8 個
                 try:
-                    restaurant_info = extract_restaurant_info_minimal(element, location_info)
+                    restaurant_info = extract_restaurant_info_minimal(element, location_info, keyword)
                     if restaurant_info and restaurant_info.get('name'):
                         # 檢查是否為餐廳相關
                         if is_restaurant_relevant(restaurant_info['name'], keyword):
@@ -1132,7 +1212,7 @@ def sort_restaurants_by_distance(restaurants: List[Dict[str, Any]], user_coords:
     
     return sorted(restaurants, key=get_distance_key)
 
-def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
+def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = None, search_keyword: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     精簡但完整的餐廳資訊提取 - 獲取名稱、地址、評分、價格
     
@@ -1180,6 +1260,11 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             "div.rllt__details div",  # 詳細資訊區域
             "div[data-value*='地址']",  # 包含地址的 div
             "span[title*='地址']",  # 標題包含地址的 span
+            # 新增更多可能的選擇器
+            "div.fontBodyMedium",
+            "span.fontBodyMedium", 
+            "div.UaQhfb span",
+            "div.lI9IFe span",
         ]
         
         for selector in address_selectors:
@@ -1187,13 +1272,36 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                 address_elements = element.find_elements(By.CSS_SELECTOR, selector)
                 for addr_elem in address_elements:
                     addr_text = addr_elem.text.strip()
-                    # 檢查是否為完整的台灣地址（必須包含城市或區域）
-                    if (addr_text and len(addr_text) > 8 and  # 提高最小長度要求
-                        any(keyword in addr_text for keyword in ['市', '縣', '區', '鄉', '鎮']) and  # 必須包含行政區域
-                        any(keyword in addr_text for keyword in ['路', '街', '巷', '號']) and  # 必須包含道路資訊
-                        not any(avoid in addr_text for avoid in ['評論', '星', '公里', '分鐘', '營業', '電話', '網站'])):  # 避免非地址資訊
+                    
+                    # 清理地址前面的特殊符號
+                    addr_text = re.sub(r'^[·•\-\s]+', '', addr_text)
+                    
+                    # 最寬鬆的地址檢查條件
+                    if (addr_text and len(addr_text) > 3 and  # 非常寬鬆的長度要求
+                        # 包含任何地址相關關鍵字
+                        any(keyword in addr_text for keyword in ['市', '縣', '區', '鄉', '鎮', '路', '街', '巷', '號', '段', '弄', '台', '新北', '桃園', '台中', '台南', '高雄']) and
+                        # 只排除明顯的非地址內容
+                        not any(avoid in addr_text for avoid in ['評論', '則評論', '星級', '公里', '小時', 'Google', 'review', 'rating', '營業中', '已打烊'])):
+                        
+                        # 如果地址看起來不完整，嘗試補全城市資訊
+                        if not any(city in addr_text for city in ['市', '縣', '區', '鄉', '鎮']):
+                            # 根據搜尋位置推斷城市
+                            if location_info and location_info.get('address'):
+                                search_location = location_info['address']
+                                if '板橋' in search_location:
+                                    addr_text = f"新北市板橋區{addr_text}"
+                                elif '台北' in search_location:
+                                    addr_text = f"台北市{addr_text}"
+                                elif '台中' in search_location:
+                                    addr_text = f"台中市{addr_text}"
+                                elif '高雄' in search_location:
+                                    addr_text = f"高雄市{addr_text}"
+                                elif '桃園' in search_location:
+                                    addr_text = f"桃園市{addr_text}"
+                        
                         restaurant_info['address'] = addr_text
                         address_found = True
+                        logger.info(f"✅ 找到地址: {addr_text} (使用選擇器: {selector})")
                         break
                 if address_found:
                     break
@@ -1204,24 +1312,26 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         if not address_found:
             try:
                 full_text = element.text
-                # 台灣地址模式 - 確保提取完整地址
+                # 更寬鬆的台灣地址模式
                 address_patterns = [
-                    # 完整地址：城市+區+路+號
-                    r'[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街巷弄大道][^\s]*\d+[號]?[^\s]*',
-                    # 包含郵遞區號的地址
-                    r'\d{3}[\u4e00-\u9fff]+[市縣][\u4e00-\u9fff]+[區鄉鎮市][\u4e00-\u9fff]*[路街][^\s]*\d+[號]?',
-                    # 至少有城市+路名+號碼
-                    r'[\u4e00-\u9fff]+[市縣][^\s]*[\u4e00-\u9fff]*[路街大道]\d+[號]?',
+                    # 任何包含地址元素的文字
+                    r'[\u4e00-\u9fff]*[市縣區鄉鎮][\u4e00-\u9fff]*[路街巷弄大道][^\s\n]*',
+                    r'[\u4e00-\u9fff]+[路街大道]\d+[號]?[^\s\n]*',
+                    r'[\u4e00-\u9fff]+[市縣][^\s\n]*',
+                    r'新北市[^\s\n]*|台北市[^\s\n]*|桃園市[^\s\n]*|台中市[^\s\n]*|台南市[^\s\n]*|高雄市[^\s\n]*',
                 ]
                 
                 for pattern in address_patterns:
                     matches = re.findall(pattern, full_text)
                     if matches:
-                        # 選擇最完整的地址
-                        best_address = max(matches, key=len)
-                        if len(best_address) > 5:
-                            restaurant_info['address'] = best_address.strip()
-                            address_found = True
+                        # 選擇任何找到的地址（降低要求）
+                        for match in matches:
+                            if len(match.strip()) > 3:  # 降低長度要求
+                                restaurant_info['address'] = match.strip()
+                                address_found = True
+                                logger.info(f"✅ 從文字中找到地址: {match.strip()}")
+                                break
+                        if address_found:
                             break
             except:
                 pass
@@ -1232,13 +1342,14 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                 spans = element.find_elements(By.TAG_NAME, "span")
                 for span in spans:
                     span_text = span.text.strip()
-                    # 檢查是否像完整地址 - 更嚴格的條件
-                    if (span_text and len(span_text) > 12 and  # 增加最小長度
-                        any(city in span_text for city in ['市', '縣']) and  # 必須包含城市
-                        any(road in span_text for road in ['路', '街']) and  # 必須包含道路
-                        ('號' in span_text or re.search(r'\d+', span_text)) and  # 必須包含號碼
-                        not any(avoid in span_text for avoid in ['評論', '星', '公里', '分鐘', '營業', '電話', '網站', 'Google', 'Maps'])):
+                    # 最寬鬆的地址檢查
+                    if (span_text and len(span_text) > 3 and  # 極低的長度要求
+                        # 包含任何地址相關字詞
+                        any(keyword in span_text for keyword in ['市', '縣', '區', '鄉', '鎮', '路', '街', '大道', '巷', '號', '台北', '新北', '桃園', '台中', '台南', '高雄']) and
+                        # 只排除明顯的非地址內容
+                        not any(avoid in span_text for avoid in ['評論', '星級', '公里', 'Google', 'Maps', '小時前', '營業中', '已打烊', 'rating', 'review'])):
                         restaurant_info['address'] = span_text
+                        logger.info(f"✅ span方法找到地址: {span_text}")
                         break
             except:
                 pass
@@ -1382,13 +1493,27 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         # 計算距離（如果有位置資訊和地址）
         if location_info and location_info.get('coords') and restaurant_info.get('address'):
             try:
-                restaurant_coords = geocode_address(restaurant_info['address'])
+                logger.debug(f"嘗試計算距離 - 用戶座標: {location_info.get('coords')}, 餐廳地址: {restaurant_info.get('address')}")
+                # 傳入搜尋位置以協助地址補全
+                search_location = location_info.get('address') if location_info else None
+                restaurant_coords = geocode_address(restaurant_info['address'], search_location)
                 if restaurant_coords:
                     distance = calculate_distance(location_info['coords'], restaurant_coords)
                     if distance is not None:
                         restaurant_info['distance_km'] = distance
-            except:
-                pass
+                        logger.debug(f"距離計算成功: {distance} km")
+                    else:
+                        logger.debug("距離計算返回 None")
+                else:
+                    logger.debug(f"餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
+            except Exception as e:
+                logger.debug(f"距離計算異常: {e}")
+        elif not location_info:
+            logger.debug("無位置資訊，跳過距離計算")
+        elif not location_info.get('coords'):
+            logger.debug(f"用戶座標為空，跳過距離計算: {location_info}")
+        elif not restaurant_info.get('address'):
+            logger.debug("餐廳地址為空，跳過距離計算")
         
         # 如果沒有距離，設為 None（不要設預設值）
         if restaurant_info['distance_km'] is None:
@@ -1465,7 +1590,7 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         # 提取餐廳資訊
         for i, element in enumerate(result_elements[:max_results]):
             try:
-                restaurant_info = extract_restaurant_info_minimal(element, location_info)
+                restaurant_info = extract_restaurant_info_minimal(element, location_info, keyword)
                 if restaurant_info and restaurant_info.get('name'):
                     # 檢查是否為餐廳相關
                     if is_restaurant_relevant(restaurant_info['name'], keyword):
@@ -1522,16 +1647,17 @@ def find_search_results(driver) -> List:
     
     return result_elements
 
-def extract_restaurant_info_from_element_improved(element, location_info: Optional[Dict] = None, driver=None) -> Optional[Dict[str, Any]]:
+def extract_restaurant_info_from_element_improved(element, location_info: Optional[Dict] = None, driver=None, keyword: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     改進版餐廳資訊提取函數 - 現在直接調用精簡版本
     :param element: Selenium WebElement
     :param location_info: 使用者位置資訊
     :param driver: WebDriver 實例
+    :param keyword: 搜尋關鍵詞
     :return: 餐廳資訊字典
     """
     # 直接調用精簡版本，大幅提升速度
-    return extract_restaurant_info_minimal(element, location_info)
+    return extract_restaurant_info_minimal(element, location_info, keyword)
 
 def is_restaurant_relevant(restaurant_name: str, keyword: str) -> bool:
     """
@@ -1599,7 +1725,7 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
         else:
             # 處理一般地址
             logger.info(f"處理地址: {user_address}")
-            coords = geocode_address(user_address)
+            coords = geocode_address(user_address, user_address)
             if coords:
                 location_info = {
                     'coords': coords,
