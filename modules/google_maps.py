@@ -1501,11 +1501,11 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                     distance = calculate_distance(location_info['coords'], restaurant_coords)
                     if distance is not None:
                         restaurant_info['distance_km'] = distance
-                        logger.debug(f"距離計算成功: {distance} km")
+                        logger.info(f"✅ 距離計算成功: {distance} km - {restaurant_info.get('name', '未知餐廳')}")
                     else:
-                        logger.debug("距離計算返回 None")
+                        logger.warning(f"❌ 距離計算返回 None - {restaurant_info.get('name', '未知餐廳')}")
                 else:
-                    logger.debug(f"餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
+                    logger.warning(f"❌ 餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
             except Exception as e:
                 logger.debug(f"距離計算異常: {e}")
         elif not location_info:
