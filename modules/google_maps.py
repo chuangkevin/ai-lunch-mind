@@ -253,7 +253,7 @@ class SearchCache:
             logger.info(f"💾 快取搜尋結果: {cache_key}")
 
 # 全域實例
-browser_pool = BrowserPool(pool_size=2)
+browser_pool = BrowserPool(pool_size=3)
 search_cache = SearchCache()
 
 def expand_short_url(short_url: str, max_redirects: int = 10) -> str:
@@ -369,10 +369,6 @@ def extract_location_from_url(url: str) -> Optional[Tuple[float, float, str]]:
                 except ValueError:
                     continue
         
-        if lat is None or lng is None:
-            logger.warning("無法從URL提取有效座標")
-            return None
-        
         # 提取地點名稱 - 多種模式
         place_name = None
         place_patterns = [
@@ -402,20 +398,35 @@ def extract_location_from_url(url: str) -> Optional[Tuple[float, float, str]]:
                 except Exception:
                     continue
         
-        if not place_name:
-            # 如果無法提取地點名稱，嘗試反向地理編碼
-            try:
-                from geopy.geocoders import Nominatim
-                geolocator = Nominatim(user_agent="lunch-recommendation-system")
-                location = geolocator.reverse(f"{lat}, {lng}", language='zh-TW')
-                if location and location.address:
-                    place_name = location.address.split(',')[0]  # 取第一部分作為地點名稱
-                    logger.info(f"反向地理編碼獲得地點名稱: {place_name}")
-            except Exception as e:
-                logger.warning(f"反向地理編碼失敗: {e}")
-                place_name = f"位置 ({lat:.4f}, {lng:.4f})"
+        # 如果有座標，直接返回
+        if lat is not None and lng is not None:
+            if not place_name:
+                # 如果無法提取地點名稱，嘗試反向地理編碼
+                try:
+                    from geopy.geocoders import Nominatim
+                    geolocator = Nominatim(user_agent="lunch-recommendation-system")
+                    location = geolocator.reverse(f"{lat}, {lng}", language='zh-TW')
+                    if location and location.address:
+                        place_name = location.address.split(',')[0]  # 取第一部分作為地點名稱
+                        logger.info(f"反向地理編碼獲得地點名稱: {place_name}")
+                except Exception as e:
+                    logger.warning(f"反向地理編碼失敗: {e}")
+                    place_name = f"位置 ({lat:.4f}, {lng:.4f})"
+            return (lat, lng, place_name)
         
-        return (lat, lng, place_name)
+        # 如果沒有座標但有地點名稱，嘗試地理編碼
+        if place_name:
+            logger.info(f"URL無座標，嘗試對地點名稱進行地理編碼: {place_name}")
+            coords = geocode_address(place_name)
+            if coords:
+                lat, lng = coords
+                logger.info(f"地理編碼成功: {place_name} -> ({lat:.4f}, {lng:.4f})")
+                return (lat, lng, place_name)
+            else:
+                logger.warning(f"地理編碼失敗: {place_name}")
+        
+        logger.warning("無法從URL提取有效位置資訊")
+        return None
         
     except Exception as e:
         logger.error(f"URL 位置提取失敗: {e}")
@@ -472,86 +483,92 @@ def normalize_taiwan_address(address: str) -> str:
 
 def smart_address_completion(address: str, search_location: Optional[str] = None) -> str:
     """
-    智能地址補全，根據搜尋位置推斷完整地址
+    簡化的地址處理 - 移除愚蠢的硬編碼邏輯
+    直接讓 Nominatim 處理地址，它比我們的硬編碼更智能
     :param address: 原始地址
-    :param search_location: 搜尋位置參考
-    :return: 補全後的地址
+    :param search_location: 搜尋位置（僅作為上下文，不再用於硬編碼映射）
+    :return: 清理後的地址
     """
     if not address:
         return address
     
-    # 城市區域對應表
-    city_district_mapping = {
-        '台北市': ['中正區', '大同區', '中山區', '松山區', '大安區', '萬華區', '信義區', '士林區', '北投區', '內湖區', '南港區', '文山區'],
-        '新北市': ['板橋區', '三重區', '中和區', '永和區', '新莊區', '新店區', '樹林區', '鶯歌區', '三峽區', '淡水區', '汐止區', '瑞芳區', '土城區', 
-                   '蘆洲區', '五股區', '泰山區', '林口區', '深坑區', '石碇區', '坪林區', '石門區', '八里區', '平溪區', '雙溪區', '貢寮區', 
-                   '金山區', '萬里區', '烏來區'],
-        '桃園市': ['桃園區', '中壢區', '大溪區', '楊梅區', '蘆竹區', '大園區', '龜山區', '八德區', '龍潭區', '平鎮區', '新屋區', '觀音區', '復興區'],
-        '台中市': ['中區', '東區', '南區', '西區', '北區', '北屯區', '西屯區', '南屯區', '太平區', '大里區', '霧峰區', '烏日區', '豐原區',
-                  '后里區', '石岡區', '東勢區', '和平區', '新社區', '潭子區', '大雅區', '神岡區', '大肚區', '沙鹿區', '龍井區', '梧棲區',
-                  '清水區', '大甲區', '外埔區', '大安區'],
-        '台南市': ['中西區', '東區', '南區', '北區', '安平區', '安南區', '永康區', '歸仁區', '新化區', '左鎮區', '玉井區', '楠西區',
-                  '南化區', '仁德區', '關廟區', '龍崎區', '官田區', '麻豆區', '佳里區', '西港區', '七股區', '將軍區', '學甲區',
-                  '北門區', '新營區', '後壁區', '白河區', '東山區', '六甲區', '下營區', '柳營區', '鹽水區', '善化區', '大內區',
-                  '山上區', '新市區', '安定區'],
-        '高雄市': ['新興區', '前金區', '苓雅區', '鹽埕區', '鼓山區', '旗津區', '前鎮區', '三民區', '楠梓區', '小港區', '左營區',
-                  '仁武區', '大社區', '東沙群島', '南沙群島', '岡山區', '路竹區', '阿蓮區', '田寮區', '燕巢區', '橋頭區', '梓官區',
-                  '彌陀區', '永安區', '湖內區', '鳳山區', '大寮區', '林園區', '鳥松區', '大樹區', '旗山區', '美濃區', '六龜區',
-                  '內門區', '杉林區', '甲仙區', '桃源區', '那瑪夏區', '茂林區', '茄萣區']
-    }
+    # 只做基本清理，讓專業的地理編碼服務處理其餘邏輯
+    return address.strip()
+
+def geocode_address_with_options(address: str, search_location: Optional[str] = None) -> Dict:
+    """
+    地理編碼，當發現模糊地名時返回多個選項供用戶選擇
+    :param address: 地址字串
+    :param search_location: 搜尋位置參考
+    :return: {'type': 'single', 'coords': (lat, lng)} 或 {'type': 'multiple', 'options': [...]}
+    """
+    if not address or len(address.strip()) < 3:
+        return {'type': 'error', 'message': '地址太短'}
     
-    # 如果地址已經包含區，直接返回
-    if any(district in address for district in ['區', '鄉', '鎮']):
-        return address
-    
-    # 檢查地址是否以城市開頭但缺少行政區
-    for city, districts in city_district_mapping.items():
-        if address.startswith(city):
-            # 嘗試根據搜尋位置推斷區域
-            if search_location:
-                # 車站或機場等地標的區域推斷
-                landmark_district_map = {
-                    '台北車站': '中正區', '台北': '中正區',
-                    '板橋車站': '板橋區', '板橋': '板橋區',
-                    '桃園機場': '大園區', '桃園': '桃園區',
-                    '台中車站': '中區', '台中': '中區',
-                    '高雄車站': '三民區', '高雄': '三民區',
-                    '台南車站': '東區', '台南': '東區'
-                }
-                
-                for landmark, district in landmark_district_map.items():
-                    if landmark in search_location and district in districts:
-                        # 在城市名稱後插入區域
-                        remaining = address[len(city):]
-                        return f"{city}{district}{remaining}"
+    # 檢查是否為模糊地名（特別是捷運站名）
+    if address.endswith('站') and not any(keyword in address for keyword in ['市', '縣', '路', '街']):
+        # 可能是捷運站，提供多個選項
+        options = []
+        geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
+        
+        # 嘗試不同的查詢方式
+        search_variants = [
+            (f"台北捷運{address}", "台北捷運站"),
+            (f"捷運{address}", "捷運站"), 
+            (address, "一般地點"),
+        ]
+        
+        for query, desc in search_variants:
+            try:
+                locations = geolocator.geocode(query, exactly_one=False, limit=3)
+                if locations:
+                    for loc in locations:
+                        if 21.0 <= loc.latitude <= 26.0 and 119.0 <= loc.longitude <= 122.5:
+                            options.append({
+                                'coords': (loc.latitude, loc.longitude),
+                                'address': loc.address,
+                                'description': desc,
+                                'query': query
+                            })
+            except Exception:
+                continue
+        
+        # 如果找到多個選項，讓用戶選擇
+        if len(options) > 1:
+            # 去重相似的位置（距離<100m視為同一地點）
+            unique_options = []
+            for option in options:
+                is_duplicate = False
+                for unique in unique_options:
+                    from geopy.distance import geodesic
+                    if geodesic(option['coords'], unique['coords']).meters < 100:
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    unique_options.append(option)
             
-            # 如果無法推斷，使用該城市最主要的區域
-            main_districts = {
-                '台北市': '中正區',
-                '新北市': '板橋區', 
-                '桃園市': '桃園區',
-                '台中市': '中區',
-                '台南市': '中西區',
-                '高雄市': '新興區'
-            }
-            
-            if city in main_districts:
-                remaining = address[len(city):]
-                return f"{city}{main_districts[city]}{remaining}"
+            if len(unique_options) > 1:
+                logger.info(f"發現模糊地名 '{address}'，提供 {len(unique_options)} 個選項")
+                return {'type': 'multiple', 'options': unique_options, 'original_query': address}
     
-    return address
+    # 使用原有的單一地理編碼邏輯
+    coords = geocode_address(address, search_location)
+    if coords:
+        return {'type': 'single', 'coords': coords}
+    else:
+        return {'type': 'error', 'message': f'無法找到地址: {address}'}
 
 def geocode_address(address: str, search_location: Optional[str] = None) -> Optional[Tuple[float, float]]:
     """
-    將地址轉換為座標 - 改進版本，支援多重地理編碼服務和智能地址補全
+    簡化的地址轉座標功能 - 移除複雜邏輯，讓 Nominatim 自己處理
     :param address: 地址字串
-    :param search_location: 搜尋位置參考，用於地址補全
+    :param search_location: 搜尋位置參考（暫時不使用）
     :return: (latitude, longitude) 或 None
     """
     if not address or len(address.strip()) < 3:
         return None
     
-    # 智能地址補全
+    # 簡化的地址補全
     completed_address = smart_address_completion(address, search_location)
     logger.info(f"地址補全: {address} -> {completed_address}")
     
@@ -559,31 +576,125 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
     normalized_address = normalize_taiwan_address(completed_address)
     logger.info(f"標準化地址: {completed_address} -> {normalized_address}")
     
-    # 嘗試多種地址格式
-    address_variants = [
-        normalized_address + ", Taiwan",
-        normalized_address + ", 台灣",
-        normalized_address,
-        address + ", Taiwan",  # 原始地址
-        address.replace('台', '臺') + ", Taiwan"  # 台/臺轉換 - 只在不包含 "台北" "台中" "台南" 等城市名時轉換
-    ]
-    
-    # 方法1: 使用 Nominatim (OpenStreetMap)
+    # 使用 Nominatim 進行地理編碼
     try:
         geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
-        for addr_variant in address_variants:
+        
+        # 構建查詢列表，優先完整地址
+        search_queries = [
+            normalized_address + ", Taiwan",
+            normalized_address,
+            completed_address + ", Taiwan", 
+            completed_address,
+            address + ", Taiwan",
+            address
+        ]
+        
+        # 特殊處理：如果是捷運站名，優先嘗試捷運相關查詢
+        if address.endswith('站') and not any(keyword in address for keyword in ['市', '縣', '路', '街']):
+            # 這可能是捷運站名
+            mrt_queries = [
+                f"台北捷運{address}, Taiwan",
+                f"捷運{address}, Taiwan", 
+                f"台北捷運{address}",
+                f"捷運{address}"
+            ]
+            # 將捷運查詢插入到最前面
+            search_queries = mrt_queries + search_queries
+            logger.debug(f"檢測到可能的捷運站名，添加捷運查詢: {address}")
+        
+        # 如果地址沒有包含市縣，嘗試補充台北市
+        if not any(city in address for city in ['市', '縣']) and any(road in address for road in ['路', '街', '大道']):
+            search_queries.insert(0, f"台北市{address}, Taiwan")
+            search_queries.insert(1, f"台北市{address}")
+        
+        # 如果是詳細地址無法找到，嘗試簡化到道路級別
+        if '巷' in address or '號' in address:
+            # 提取主要道路部分（支援中文和數字段）
+            import re
+            # 匹配 "路名+段數" 但不包含巷弄門牌，支援中文數字
+            road_match = re.search(r'([^市縣區鄉鎮]*[路街大道](?:一|二|三|四|五|六|七|八|九|\d+)*段?)', address)
+            if road_match:
+                main_road = road_match.group(1).strip()
+                search_queries.extend([
+                    f"台北市{main_road}, Taiwan",
+                    f"{main_road}, Taiwan",
+                    main_road
+                ])
+                logger.debug(f"添加簡化道路查詢: {main_road}")
+        
+        logger.debug(f"完整查詢列表: {search_queries}")
+        
+        # 嘗試每個查詢
+        for query in search_queries:
             try:
-                location = geolocator.geocode(addr_variant)
+                logger.debug(f"嘗試查詢: {query}")
+                location = geolocator.geocode(query, limit=1)
+                
                 if location and location.latitude and location.longitude:
-                    # 檢查座標是否在台灣範圍內
+                    # 驗證座標在台灣範圍內
                     if 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
-                        logger.info(f"Nominatim 成功解析地址: {addr_variant} -> ({location.latitude}, {location.longitude})")
+                        logger.info(f"✅ 地理編碼成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
                         return (location.latitude, location.longitude)
+                    else:
+                        logger.debug(f"座標超出台灣範圍: {location.latitude}, {location.longitude}")
+                        
             except Exception as e:
-                logger.warning(f"Nominatim 解析失敗: {addr_variant} - {e}")
+                logger.debug(f"查詢失敗: {query} - {e}")
                 continue
+                
     except Exception as e:
-        logger.error(f"Nominatim 服務失敗: {e}")
+        logger.error(f"地理編碼服務異常: {e}")
+    
+    logger.warning(f"地址解析失敗: {address}")
+    return None
+    
+    # 方法1: 使用 Nominatim (OpenStreetMap) - 智能查詢策略
+    try:
+        geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
+        
+        # 智能構建搜尋詞，不使用硬編碼
+        search_queries = []
+        
+        # 策略1：如果是商圈/地標類，優先搜尋台灣最著名的
+        landmark_keywords = ['商圈', '夜市', '老街', '車站', '機場', '大學', '博物館', '公園']
+        if any(keyword in address for keyword in landmark_keywords):
+            # 對地標進行多種搜尋嘗試，讓Nominatim自然排序
+            search_queries = [
+                f"{address}, 台北, Taiwan",  # 優先嘗試台北
+                f"{address}, Taiwan",  # 讓系統自然選擇最著名的
+                f"{address}, 台灣",
+                address  # 原始查詢
+            ]
+        else:
+            # 對一般地址的標準查詢
+            search_queries = [
+                completed_address + ", Taiwan",
+                completed_address,
+                address + ", Taiwan",
+                address
+            ]
+        
+        # 嘗試每個查詢，選擇第一個有效結果
+        for query in search_queries:
+            try:
+                logger.debug(f"嘗試Nominatim查詢: {query}")
+                location = geolocator.geocode(query, limit=3)  # 獲取多個結果
+                
+                if location and location.latitude and location.longitude:
+                    # 驗證座標在台灣範圍內
+                    if 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
+                        logger.info(f"✅ Nominatim成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
+                        return (location.latitude, location.longitude)
+                    else:
+                        logger.debug(f"座標超出台灣範圍: {query}")
+                        
+            except Exception as e:
+                logger.debug(f"查詢失敗: {query} - {e}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Nominatim服務異常: {e}")
     
     # 方法2: 使用座標提取 (如果地址中包含座標資訊)
     try:
@@ -599,29 +710,54 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
     
     # 方法3: 只對完整地址嘗試簡化解析
     try:
-        # 檢查地址是否足夠完整 - 放寬長度要求
-        if (len(address) > 8 and 
-            any(city in address for city in ['市', '縣']) and
-            any(road in address for road in ['路', '街', '大道']) and
-            ('號' in address or '段' in address or '巷' in address)):
+        # 檢查地址是否足夠完整 - 更靈活的判斷邏輯
+        has_road = any(road in address for road in ['路', '街', '大道'])
+        has_location_marker = ('號' in address or '段' in address or '巷' in address)
+        has_city_county = any(city in address for city in ['市', '縣'])
+        is_long_enough = len(address) > 4  # 進一步降低長度要求
+        
+        # 台北地址通常沒有「市」字，但有明確的路名和門牌
+        if is_long_enough and has_road and has_location_marker:
             
             # 嘗試更簡化的查詢
             simplified_parts = []
             
-            # 提取市/縣
+            # 提取市/縣（如果有的話）
             city_match = re.search(r'([\u4e00-\u9fff]+[市縣])', address)
             if city_match:
                 simplified_parts.append(city_match.group(1))
+            else:
+                # 根據搜尋位置推斷預設城市
+                default_city = '台北市'  # 預設值
+                if search_location:
+                    if '屏東' in search_location or '海生館' in search_location or '車城' in search_location:
+                        default_city = '屏東縣'
+                    elif '高雄' in search_location:
+                        default_city = '高雄市'
+                    elif '台中' in search_location:
+                        default_city = '台中市'
+                    elif '台南' in search_location:
+                        default_city = '台南市'
+                simplified_parts.append(default_city)
             
             # 提取區/鄉/鎮 (更精確的匹配)
             district_match = re.search(r'([^市縣]+[區鄉鎮])', address)
             if district_match:
                 simplified_parts.append(district_match.group(1))
             
-            # 提取主要道路 (更精確的匹配)
-            road_match = re.search(r'([^區鄉鎮市縣]+[路街大道])', address.replace(''.join(simplified_parts), ''))
+            # 智能提取道路和地址資訊
+            # 先嘗試保留完整地址（包括巷弄門牌）
+            road_match = re.search(r'([^區鄉鎮市縣]*(路|街|大道)[^區鄉鎮市縣]*)', address)
             if road_match:
-                simplified_parts.append(road_match.group(1))
+                road_info = road_match.group(1).strip()
+                # 清理多餘的空格和特殊字符
+                road_info = re.sub(r'\s+', '', road_info)
+                if road_info:
+                    simplified_parts.append(road_info)
+                    logger.debug(f"提取道路資訊: {road_info}")
+            
+            # 如果簡化解析失敗，記錄詳細信息以便調試
+            logger.debug(f"簡化部分: {simplified_parts}")
             
             if len(simplified_parts) >= 2:  # 至少要有2個部分才進行簡化查詢
                 simplified_address = ''.join(simplified_parts) + ", Taiwan"
@@ -631,7 +767,7 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
                     logger.info(f"完整地址簡化解析成功: {simplified_address} -> ({location.latitude}, {location.longitude})")
                     return (location.latitude, location.longitude)
         else:
-            logger.info(f"地址不夠完整，跳過簡化解析: {address}")
+            logger.info(f"地址不夠完整，跳過簡化解析: {address} (長度:{len(address)}, 有路名:{has_road}, 有位置標記:{has_location_marker})")
 
     except Exception as e:
         logger.warning(f"簡化地址解析失敗: {e}")
@@ -791,7 +927,7 @@ def clean_address(address: str) -> str:
 
 def is_complete_address(address: str) -> bool:
     """
-    檢查地址是否足夠完整
+    檢查地址是否足夠完整 - 放寬台北地址的要求
     :param address: 地址字串
     :return: 是否完整
     """
@@ -814,7 +950,11 @@ def is_complete_address(address: str) -> bool:
     if has_postal:
         return completeness_score >= 3
     
-    # 放寬條件：有城市+區+路即可算完整，不強制要求門牌號
+    # 台北地址特殊處理：有路名+門牌號就算完整
+    if has_road and has_number:
+        return True
+    
+    # 或者有城市+區+路即可算完整
     if has_city and has_district and has_road:
         return True
     
@@ -1062,14 +1202,32 @@ def search_restaurants_parallel(keyword: str, location_info: Optional[Dict] = No
         search_query = f"{location_info['address']} {keyword} 餐廳"
     else:
         search_query = f"{keyword} 餐廳 台灣"
-    
+
     encoded_query = quote(search_query)
+    
+    # 取得搜尋位置的座標，用於Maps搜尋
+    search_coords = "25.0478,121.5318"  # 預設台北座標
+    user_coords = None
+    
+    # 檢查多種可能的座標key
+    if location_info:
+        if location_info.get('coordinates'):
+            user_coords = location_info['coordinates']
+        elif location_info.get('coords'):
+            user_coords = location_info['coords']
+    
+    if user_coords:
+        lat, lng = user_coords
+        search_coords = f"{lat},{lng}"
+        logger.info(f"✅ 使用用戶座標進行搜尋: ({lat:.4f}, {lng:.4f})")
+    else:
+        logger.warning("⚠️ 未找到用戶座標，使用預設台北座標")
     
     # 精簡搜尋策略 - 只用最有效的一種
     search_strategies = [
         {
             'name': 'Maps直接搜尋',
-            'url': f"https://www.google.com/maps/search/{encoded_query}/@25.0478,121.5318,12z",
+            'url': f"https://www.google.com/maps/search/{encoded_query}/@{search_coords},12z",
             'priority': 1
         }
     ]
@@ -1227,6 +1385,7 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         'rating': None,
         'price_level': None,
         'distance_km': None,
+        'distance': '距離未知',
         'maps_url': '',
         'phone': '',
         'review_count': None
@@ -1252,19 +1411,25 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         # 提取地址 - 使用更廣泛的選擇器和文字分析
         address_found = False
         
-        # 方法1: 使用特定選擇器
+        # 方法1: 使用特定選擇器，優先找完整地址
         address_selectors = [
+            # Google Maps 搜尋結果中的地址選擇器（優先級由高到低）
             "div.W4Efsd span.ZDu9vd",  # Google Maps 地址
             "span.LrzXr",  # 地址專用樣式
-            ".BNeawe.UPmit.AP7Wnd",  # 另一種地址樣式
+            "div.rllt__details div span",  # 詳細資訊區域中的 span
             "div.rllt__details div",  # 詳細資訊區域
+            ".BNeawe.UPmit.AP7Wnd",  # 另一種地址樣式
             "div[data-value*='地址']",  # 包含地址的 div
             "span[title*='地址']",  # 標題包含地址的 span
-            # 新增更多可能的選擇器
+            # 更多通用選擇器
             "div.fontBodyMedium",
             "span.fontBodyMedium", 
             "div.UaQhfb span",
             "div.lI9IFe span",
+            # 包含台灣地址關鍵字的任何元素
+            "*[class*='address']",
+            "div:contains('台北')", "div:contains('新北')", "div:contains('桃園')",
+            "span:contains('路')", "span:contains('街')", "span:contains('號')",
         ]
         
         for selector in address_selectors:
@@ -1276,33 +1441,36 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                     # 清理地址前面的特殊符號
                     addr_text = re.sub(r'^[·•\-\s]+', '', addr_text)
                     
-                    # 最寬鬆的地址檢查條件
-                    if (addr_text and len(addr_text) > 3 and  # 非常寬鬆的長度要求
-                        # 包含任何地址相關關鍵字
-                        any(keyword in addr_text for keyword in ['市', '縣', '區', '鄉', '鎮', '路', '街', '巷', '號', '段', '弄', '台', '新北', '桃園', '台中', '台南', '高雄']) and
-                        # 只排除明顯的非地址內容
-                        not any(avoid in addr_text for avoid in ['評論', '則評論', '星級', '公里', '小時', 'Google', 'review', 'rating', '營業中', '已打烊'])):
+                    # 檢查是否為有效的台灣地址
+                    if (addr_text and len(addr_text) > 3 and  
+                        # 包含地址相關關鍵字
+                        any(keyword in addr_text for keyword in ['路', '街', '巷', '號', '市', '區', '縣', '鄉']) and
+                        # 排除明顯的非地址內容
+                        not any(avoid in addr_text for avoid in ['評論', '則評論', '星級', '公里', '小時', '營業', 'Google', '分鐘'])):
                         
-                        # 如果地址看起來不完整，嘗試補全城市資訊
-                        if not any(city in addr_text for city in ['市', '縣', '區', '鄉', '鎮']):
-                            # 根據搜尋位置推斷城市
-                            if location_info and location_info.get('address'):
-                                search_location = location_info['address']
-                                if '板橋' in search_location:
-                                    addr_text = f"新北市板橋區{addr_text}"
-                                elif '台北' in search_location:
-                                    addr_text = f"台北市{addr_text}"
-                                elif '台中' in search_location:
-                                    addr_text = f"台中市{addr_text}"
-                                elif '高雄' in search_location:
-                                    addr_text = f"高雄市{addr_text}"
-                                elif '桃園' in search_location:
-                                    addr_text = f"桃園市{addr_text}"
+                        # 優先選擇完整地址（包含縣市區）
+                        is_complete = any(city in addr_text for city in ['台北市', '新北市', '桃園市', '台中市', '台南市', '高雄市'])
                         
-                        restaurant_info['address'] = addr_text
-                        address_found = True
-                        logger.info(f"✅ 找到地址: {addr_text} (使用選擇器: {selector})")
-                        break
+                        if is_complete:
+                            restaurant_info['address'] = addr_text
+                            address_found = True
+                            logger.info(f"✅ 找到完整地址: {addr_text}")
+                            break
+                        else:
+                            # 不完整地址，嘗試根據搜尋位置補全
+                            if search_keyword:
+                                completed_addr = smart_address_completion(addr_text, search_keyword)
+                                if completed_addr != addr_text:  # 有補全成功
+                                    restaurant_info['address'] = completed_addr
+                                    address_found = True
+                                    logger.info(f"✅ 補全地址成功: {addr_text} -> {completed_addr}")
+                                    break
+                            
+                            # 如果無法補全，保留原地址作為備用
+                            if not restaurant_info.get('address'):
+                                restaurant_info['address'] = addr_text
+                                logger.debug(f"保留部分地址: {addr_text}")
+                
                 if address_found:
                     break
             except:
@@ -1491,27 +1659,42 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             pass
         
         # 計算距離（如果有位置資訊和地址）
-        if location_info and location_info.get('coords') and restaurant_info.get('address'):
-            try:
-                logger.debug(f"嘗試計算距離 - 用戶座標: {location_info.get('coords')}, 餐廳地址: {restaurant_info.get('address')}")
-                # 傳入搜尋位置以協助地址補全
-                search_location = location_info.get('address') if location_info else None
-                restaurant_coords = geocode_address(restaurant_info['address'], search_location)
-                if restaurant_coords:
-                    distance = calculate_distance(location_info['coords'], restaurant_coords)
-                    if distance is not None:
-                        restaurant_info['distance_km'] = distance
-                        logger.info(f"✅ 距離計算成功: {distance} km - {restaurant_info.get('name', '未知餐廳')}")
+        if location_info and restaurant_info.get('address'):
+            # 檢查多種可能的座標key
+            user_coords = None
+            if location_info.get('coords'):
+                user_coords = location_info['coords']
+            elif location_info.get('coordinates'):
+                user_coords = location_info['coordinates']
+            
+            if user_coords:
+                try:
+                    logger.debug(f"嘗試計算距離 - 用戶座標: {user_coords}, 餐廳地址: {restaurant_info.get('address')}")
+                    # 傳入搜尋位置以協助地址補全
+                    search_location = location_info.get('address') if location_info else None
+                    restaurant_coords = geocode_address(restaurant_info['address'], search_location)
+                    if restaurant_coords:
+                        distance = calculate_distance(user_coords, restaurant_coords)
+                        if distance is not None:
+                            restaurant_info['distance_km'] = distance
+                            # 格式化距離字串
+                            if distance < 1:
+                                restaurant_info['distance'] = f"{int(distance * 1000)}公尺"
+                            else:
+                                restaurant_info['distance'] = f"{distance:.1f}公里"
+                            logger.info(f"✅ 距離計算成功: {distance} km - {restaurant_info.get('name', '未知餐廳')}")
+                        else:
+                            restaurant_info['distance'] = "距離未知"
+                            logger.warning(f"❌ 距離計算返回 None - {restaurant_info.get('name', '未知餐廳')}")
                     else:
-                        logger.warning(f"❌ 距離計算返回 None - {restaurant_info.get('name', '未知餐廳')}")
-                else:
-                    logger.warning(f"❌ 餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
-            except Exception as e:
-                logger.debug(f"距離計算異常: {e}")
+                        restaurant_info['distance'] = "距離未知"
+                        logger.warning(f"❌ 餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
+                except Exception as e:
+                    logger.debug(f"距離計算異常: {e}")
+            else:
+                logger.debug(f"用戶座標為空，跳過距離計算: {location_info}")
         elif not location_info:
             logger.debug("無位置資訊，跳過距離計算")
-        elif not location_info.get('coords'):
-            logger.debug(f"用戶座標為空，跳過距離計算: {location_info}")
         elif not restaurant_info.get('address'):
             logger.debug("餐廳地址為空，跳過距離計算")
         
@@ -1549,9 +1732,15 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         # 建立 Google Local Search URL - 改進版，減少被偵測
         encoded_query = quote(search_query)
         
+        # 取得搜尋位置的座標，用於Maps搜尋
+        search_coords = "25.0478,121.5318"  # 預設台北座標
+        if location_info and location_info.get('coordinates'):
+            lat, lng = location_info['coordinates']
+            search_coords = f"{lat},{lng}"
+        
         # 嘗試不同的搜尋策略
         search_strategies = [
-            f"https://www.google.com/maps/search/{encoded_query}/@25.0478,121.5318,12z",  # Maps 直接搜尋
+            f"https://www.google.com/maps/search/{encoded_query}/@{search_coords},12z",  # Maps 直接搜尋
             f"https://www.google.com/search?tbm=lcl&q={encoded_query}&hl=zh-TW",  # Local 搜尋
             f"https://www.google.com/search?q={encoded_query}+地址&hl=zh-TW"  # 一般搜尋加上地址關鍵字
         ]
@@ -1729,6 +1918,7 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
             if coords:
                 location_info = {
                     'coords': coords,
+                    'coordinates': coords,  # 同時設定兩個鍵以確保兼容性
                     'address': user_address
                 }
                 logger.info(f"地址座標: {coords}")
@@ -1736,6 +1926,7 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
                 # 即使無法獲得座標，也保留地址用於搜尋
                 location_info = {
                     'coords': None,
+                    'coordinates': None,  # 同時設定兩個鍵以確保兼容性
                     'address': user_address
                 }
                 logger.warning(f"無法獲得地址座標，僅用於搜尋: {user_address}")
@@ -1957,3 +2148,174 @@ def cleanup_resources():
 # 確保程序退出時清理資源
 import atexit
 atexit.register(cleanup_resources)
+
+def get_location_candidates(address: str, max_candidates: int = 3) -> List[Dict[str, Any]]:
+    """
+    獲取模糊地址的候選位置列表，讓用戶選擇正確的位置
+    :param address: 地址字串
+    :param max_candidates: 最大候選數量
+    :return: 候選位置列表
+    """
+    if not address or len(address.strip()) < 2:
+        return []
+    
+    candidates = []
+    
+    try:
+        geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
+        
+        # 構建多種查詢方式
+        search_queries = []
+        
+        # 基本查詢
+        search_queries.extend([
+            address + ", Taiwan",
+            address + ", 台灣",
+            address
+        ])
+        
+        # 如果是捷運站名，添加捷運相關查詢
+        if address.endswith('站') and not any(keyword in address for keyword in ['市', '縣', '路', '街']):
+            search_queries.extend([
+                f"台北捷運{address}, Taiwan",
+                f"捷運{address}, Taiwan",
+                f"台北捷運{address}",
+                f"捷運{address}"
+            ])
+        
+        # 如果沒有市縣，添加台北市查詢
+        if not any(city in address for city in ['市', '縣']) and any(road in address for road in ['路', '街', '大道']):
+            search_queries.extend([
+                f"台北市{address}, Taiwan",
+                f"台北市{address}"
+            ])
+        
+        seen_locations = set()  # 避免重複位置
+        
+        for query in search_queries:
+            try:
+                # 使用 limit 參數獲取多個結果
+                locations = geolocator.geocode(query, limit=5, exactly_one=False)
+                
+                if locations:
+                    for location in locations:
+                        if location and location.latitude and location.longitude:
+                            # 驗證座標在台灣範圍內
+                            if 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
+                                # 創建位置標識符以避免重複
+                                location_key = f"{location.latitude:.4f},{location.longitude:.4f}"
+                                
+                                if location_key not in seen_locations:
+                                    seen_locations.add(location_key)
+                                    
+                                    # 解析地址資訊
+                                    address_parts = location.address.split(', ')
+                                    display_name = address_parts[0] if address_parts else location.address
+                                    
+                                    # 提取區域資訊
+                                    district = ""
+                                    city = ""
+                                    for part in address_parts:
+                                        if any(suffix in part for suffix in ['區', '鄉', '鎮']):
+                                            district = part
+                                        elif any(suffix in part for suffix in ['市', '縣']):
+                                            city = part
+                                    
+                                    candidate = {
+                                        'name': display_name,
+                                        'full_address': location.address,
+                                        'coordinates': [location.latitude, location.longitude],
+                                        'district': district,
+                                        'city': city,
+                                        'query_used': query
+                                    }
+                                    
+                                    candidates.append(candidate)
+                                    
+                                    if len(candidates) >= max_candidates:
+                                        break
+                        
+                        if len(candidates) >= max_candidates:
+                            break
+                            
+            except Exception as e:
+                logger.debug(f"候選查詢失敗: {query} - {e}")
+                continue
+            
+            if len(candidates) >= max_candidates:
+                break
+                
+    except Exception as e:
+        logger.error(f"獲取位置候選失敗: {e}")
+    
+    logger.info(f"為地址 '{address}' 找到 {len(candidates)} 個候選位置")
+    return candidates
+
+def geocode_address_with_options(address: str) -> Dict[str, Any]:
+    """
+    智能地址解析 - 如果地址模糊則返回候選選項，否則返回確定位置
+    :param address: 地址字串
+    :return: 包含位置資訊或候選選項的字典
+    """
+    if not address or len(address.strip()) < 2:
+        return {
+            'status': 'error',
+            'message': '地址不能為空'
+        }
+    
+    # 首先嘗試直接地理編碼
+    coords = geocode_address(address)
+    
+    # 檢查是否為模糊地址（需要用戶選擇）
+    is_ambiguous = False
+    
+    # 判斷是否為模糊地址的條件
+    if address.endswith('站') and not any(keyword in address for keyword in ['市', '縣', '路', '街']):
+        # 捷運站名可能模糊
+        is_ambiguous = True
+    elif len(address) <= 4 and not any(keyword in address for keyword in ['市', '縣', '區', '路', '街']):
+        # 短地名可能模糊
+        is_ambiguous = True
+    
+    if is_ambiguous or coords is None:
+        # 獲取候選位置
+        candidates = get_location_candidates(address, max_candidates=3)
+        
+        if len(candidates) > 1:
+            # 多個候選，需要用戶選擇
+            return {
+                'status': 'multiple_options',
+                'message': f'找到多個 "{address}" 的可能位置，請選擇正確的位置：',
+                'candidates': candidates,
+                'original_query': address
+            }
+        elif len(candidates) == 1:
+            # 只有一個候選，直接使用
+            candidate = candidates[0]
+            return {
+                'status': 'success',
+                'message': '位置解析成功',
+                'location': {
+                    'address': candidate['full_address'],
+                    'coordinates': candidate['coordinates'],
+                    'name': candidate['name']
+                }
+            }
+        else:
+            # 沒有找到候選
+            return {
+                'status': 'not_found',
+                'message': f'無法找到 "{address}" 的位置資訊',
+                'original_query': address
+            }
+    else:
+        # 地址解析成功，返回確定位置
+        return {
+            'status': 'success',
+            'message': '位置解析成功',
+            'location': {
+                'address': address,
+                'coordinates': list(coords),
+                'name': address
+            }
+        }

@@ -25,8 +25,8 @@ FOOD_PATTERNS = {
     "熱炒": ["熱炒", "炒菜", "合菜"],
     "臭豆腐": ["臭豆腐"],
     "便當": ["便當", "飯盒", "餐盒"],
-    "麵食": ["麵", "拉麵", "意麵", "湯麵"],
-    "小吃": ["小吃", "點心"],
+    "麵食": ["麵", "拉麵", "意麵", "湯麵", "義大利麵", "pasta", "牛肉麵", "擔仔麵", "陽春麵"],
+    "小吃": ["小吃", "點心", "東山鴨頭", "鹽酥雞", "雞排"],
     "輕食": ["輕食", "沙拉", "三明治"],
     "湯品": ["湯", "煲湯", "湯麵"],
 }
@@ -40,18 +40,32 @@ def analyze_user_request(user_input):
     try:
         system_prompt = """你是一個專業的餐廳推薦需求分析助手。請仔細分析使用者的輸入，特別注意以下重點：
 
-1. 店名 vs 地名 vs 食物類型：
-   - 「龜山區東山鴨頭」→ 地區：龜山區，食物類型：東山鴨頭（是滷味/鴨頭類小吃）
-   - 「西門町麥當勞」→ 地區：西門町，店名：麥當勞
-   - 「台北牛肉麵」→ 地區：台北，食物類型：牛肉麵
+1. 地標位置 vs 店名 vs 地名 vs 食物類型：
+   - 「屏東海生館」→ 地區：屏東海生館（知名地標），intent: "location_query"
+   - 「台北101」→ 地區：台北101（知名地標），intent: "location_query"  
+   - 「龜山區東山鴨頭」→ 地區：龜山區，食物類型：東山鴨頭，intent: "search_food_type"
+   - 「西門町麥當勞」→ 地區：西門町，店名：麥當勞，intent: "search_specific_store"
+   - 「台北牛肉麵」→ 地區：台北，食物類型：牛肉麵，intent: "search_food_type"
 
-2. 食物類型識別：
-   - 東山鴨頭、鹽酥雞、雞排、臭豆腐 → 小吃類
-   - 牛肉麵、拉麵、意麵 → 麵食類
-   - 滷肉飯、便當 → 台式料理
-   - 火鍋、燒烤、熱炒 → 正餐類
+2. 重要地標識別（這些輸入應標記為 location_query）：
+   - 博物館/美術館：故宮、海生館、科博館、美術館等
+   - 知名景點：101、小巨蛋、西門町、夜市等
+   - 車站/機場：台北車站、桃園機場、高鐵站等
+   - 學校/醫院：台大、榮總、長庚等
+   - 商場/百貨：信義威秀、京站、大遠百等
 
-3. 連鎖店識別：麥當勞、星巴克、肯德基等知名連鎖品牌
+3. 食物類型識別（注意：需要同時提取大類和具體類型）：
+   - 東山鴨頭、鹽酥雞、雞排、臭豆腐 → 小吃類，具體關鍵字：東山鴨頭、鹽酥雞等
+   - 牛肉麵、拉麵、義大利麵、意麵 → 麵食類，具體關鍵字：牛肉麵、拉麵、義大利麵等
+   - 滷肉飯、便當 → 台式料理，具體關鍵字：滷肉飯、便當等
+   - 火鍋、燒烤、熱炒 → 正餐類，具體關鍵字：火鍋、燒烤、熱炒等
+
+4. 連鎖店識別：麥當勞、星巴克、肯德基等知名連鎖品牌
+
+**重要判斷原則：**
+- 如果輸入只是地標名稱（如：屏東海生館、台北101），應標記為 location_query
+- 如果輸入包含食物關鍵字，才標記為 search_food_type 或 search_restaurants
+- 當用戶提到具體食物名稱時，必須在 keywords 陣列中包含該具體名稱
 
 請提取以下資訊並以 JSON 格式回傳：
 
@@ -80,9 +94,13 @@ def analyze_user_request(user_input):
 }
 
 範例分析：
+- 「屏東海生館」→ location.address: "屏東海生館", food_preferences.keywords: [], food_preferences.categories: [], intent: "location_query"
+- 「台北101」→ location.address: "台北101", food_preferences.keywords: [], food_preferences.categories: [], intent: "location_query"
 - 「龜山區東山鴨頭」→ location.address: "龜山區", food_preferences.keywords: ["東山鴨頭"], food_preferences.categories: ["小吃", "滷味"], intent: "search_food_type"
-- 「我在西門町找燒烤」→ location.address: "西門町", food_preferences.categories: ["燒烤"], intent: "search_restaurants"
+- 「我在西門町找燒烤」→ location.address: "西門町", food_preferences.keywords: ["燒烤"], food_preferences.categories: ["燒烤"], intent: "search_restaurants"
 - 「信義區的麥當勞」→ location.address: "信義區", food_preferences.restaurant_name: "麥當勞", intent: "search_specific_store"
+- 「中山區想吃義大利麵」→ location.address: "中山區", food_preferences.keywords: ["義大利麵"], food_preferences.categories: ["麵食"], intent: "search_food_type"
+- 「台北牛肉麵」→ location.address: "台北", food_preferences.keywords: ["牛肉麵"], food_preferences.categories: ["麵食"], intent: "search_food_type"
 
 請只回傳 JSON，不要有其他說明文字。"""
 
@@ -128,7 +146,44 @@ def _fallback_analysis(user_input):
     """
     user_lower = user_input.lower()
     
-    # 簡單的關鍵字匹配
+    # 先檢查是否為純地標查詢
+    landmark_keywords = [
+        '海生館', '101', '車站', '機場', '夜市', '博物館', '美術館', 
+        '故宮', '小巨蛋', '威秀', '京站', '遠百', '大學', '醫院',
+        '高鐵', '捷運', '商場', '百貨', '科博館'
+    ]
+    
+    # 如果輸入只包含地標關鍵字而沒有食物關鍵字，判定為位置查詢
+    has_landmark = any(keyword in user_input for keyword in landmark_keywords)
+    has_food_keyword = any(food_type in user_lower for food_types in FOOD_PATTERNS.values() for food_type in food_types)
+    
+    if has_landmark and not has_food_keyword:
+        # 提取位置
+        location = None
+        location_patterns = [
+            r'([^，。！？\s]*(?:海生館|101|車站|機場|夜市|博物館|美術館|故宮|小巨蛋|威秀|京站|遠百|大學|醫院|高鐵|捷運|商場|百貨|科博館))',
+            r'([^，。！？\s]*(?:區|站|路|街|市|縣|大樓|商場|夜市))',
+            r'(台北\w+|高雄\w+|台中\w+|台南\w+|屏東\w+)',
+        ]
+        for pattern in location_patterns:
+            matches = re.findall(pattern, user_input)
+            if matches:
+                location = {"address": matches[0]}
+                break
+        
+        return {
+            "location": location or {"address": user_input.strip()},
+            "food_preferences": {
+                "categories": [],
+                "keywords": [],
+                "mood_context": None
+            },
+            "budget": None,
+            "constraints": {},
+            "intent": "location_query"  # 關鍵：標記為位置查詢
+        }
+    
+    # 原有的食物類型分析邏輯
     food_categories = []
     if any(word in user_lower for word in ['冰', '剉冰', '冰品']):
         food_categories.append('冰品')
@@ -196,7 +251,19 @@ def extract_search_keywords_from_analysis(analysis_result):
     else:
         data = analysis_result["fallback_analysis"]
     
-    # 提取食物類型
+    # 檢查意圖類型
+    intent = data.get("intent", "search_restaurants")
+    
+    # 如果是位置查詢（純地標），使用通用餐廳類型
+    if intent == "location_query":
+        return ["餐廳", "小吃", "便當"]  # 適合地標附近的通用搜尋
+    
+    # 優先使用具體的食物關鍵字
+    keywords = data.get("food_preferences", {}).get("keywords", [])
+    if keywords:
+        return keywords[:3]  # 限制最多3個具體關鍵字
+    
+    # 如果沒有具體關鍵字，使用食物類型
     categories = data.get("food_preferences", {}).get("categories", [])
     if categories:
         return categories[:3]  # 限制最多3個類型

@@ -135,7 +135,13 @@ def get_weather_data(latitude_or_input, longitude=None):
             return {"error": "找不到附近的氣象觀測站"}
         
         # 嘗試獲取該地區的降雨機率預報
-        rain_probability = get_rain_probability_for_location(latitude, longitude, api_key)
+        try:
+            rain_probability = get_rain_probability_for_location(latitude, longitude, api_key)
+            if not rain_probability or not isinstance(rain_probability, dict):
+                rain_probability = {"probability": "N/A", "source": "無法取得降雨資料"}
+        except Exception as e:
+            print(f"獲取降雨機率失敗: {e}")
+            rain_probability = {"probability": "N/A", "source": "降雨資料查詢失敗"}
         
         # 合併觀測資料和預報資料
         weather_data = {
@@ -409,7 +415,7 @@ def get_rain_probability_for_location(latitude, longitude, api_key):
         
     except Exception as e:
         print(f"獲取降雨機率失敗: {e}")
-        return {"probability": "N/A", "source": "查詢失敗"}
+        return {"probability": "N/A", "source": "查詢失敗", "error": str(e)}
 
 def get_city_from_coordinates(latitude, longitude):
     """
