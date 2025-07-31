@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from modules.weather import get_weather_data
-from modules.google_maps import search_restaurants
+from modules.google_maps import search_restaurants, geocode_address_with_options
 from modules.sweat_index import query_sweat_index_by_location, get_sweat_risk_alerts
 from modules.sweat_index import get_location_coordinates, get_real_weather_data
 from modules.ai_recommendation_engine import SmartRecommendationEngine, get_ai_lunch_recommendation
@@ -95,7 +95,7 @@ def weather_endpoint(latitude: float = None, longitude: float = None, location: 
                 "temperature": weather_data.get('temperature'),
                 "humidity": weather_data.get('humidity'),
                 "wind_speed": weather_data.get('wind_speed'),
-                "rain_probability": weather_data.get('rain_probability', {}),
+                "rain_probability": weather_data.get('rain_probability', {"probability": "N/A", "source": "無資料"}),
                 "station_name": weather_data.get('station_name'),
                 "distance_km": weather_data.get('distance_km'),
                 "data_time": weather_data.get('data_time')
@@ -146,6 +146,21 @@ def restaurants_endpoint(keyword: str = None, user_address: str = None, max_resu
         print(f"[API ERROR] 餐廳搜尋失敗: {e}")
         raise HTTPException(status_code=500, detail=f"搜尋失敗: {str(e)}")
 
+
+# 流汗指數查詢 API 端點
+@app.get("/location-options")
+def location_options_endpoint(address: str):
+    """
+    位置選擇 API - 當地址模糊時返回多個選項供用戶選擇
+    :param address: 地址字串
+    :return: 單一位置或多個選項
+    """
+    try:
+        result = geocode_address_with_options(address)
+        return result
+    except Exception as e:
+        print(f"[API ERROR] 位置查詢失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"位置查詢失敗: {str(e)}")
 
 # 流汗指數查詢 API 端點
 @app.get("/sweat-index")
@@ -245,7 +260,7 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
             "station_name": weather_data.get('station_name'),
             "distance_km": weather_data.get('distance_km'),
             "data_time": weather_data.get('data_time'),
-            "rain_probability": weather_data.get('rain_probability', {})
+            "rain_probability": weather_data.get('rain_probability', {"probability": "N/A", "source": "無資料"})
         }
         
     except HTTPException:
