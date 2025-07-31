@@ -33,12 +33,16 @@ class SmartRecommendationEngine:
                 sweat_index = 50
                 temperature = 25
             
+            # 1.5. 根據流汗指數計算搜尋距離範圍
+            max_distance_km = self._calculate_max_distance_by_sweat_index(sweat_index)
+            print(f"📏 根據流汗指數 {sweat_index}/10，設定最大搜尋距離：{max_distance_km}km")
+            
             # 2. 選擇搜尋關鍵字（按您的要求：無冰品、沙拉，有熱炒、臭豆腐）
             search_keywords = self._get_search_keywords(user_input, sweat_index, temperature)
             
             # 3. 先回傳搜尋計劃給用戶
-            search_plan = self._generate_search_plan(location, sweat_data, search_keywords, user_input)
-            print(f"� 搜尋計劃：\n{search_plan}")
+            search_plan = self._generate_search_plan(location, sweat_data, search_keywords, user_input, max_distance_km)
+            print(f"📋 搜尋計劃：\n{search_plan}")
             
             # 先返回搜尋計劃，讓前端立即顯示
             plan_response = {
@@ -49,6 +53,7 @@ class SmartRecommendationEngine:
                 "weather_info": sweat_data,
                 "search_plan": search_plan,
                 "search_keywords": search_keywords,
+                "max_distance_km": max_distance_km,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
@@ -56,8 +61,8 @@ class SmartRecommendationEngine:
             # 現在暫時直接繼續執行搜尋
             
             # 4. 開始實際搜尋餐廳（並行搜尋多種類型）
-            print(f"� 開始並行搜尋餐廳...")
-            print(f"🔍 搜尋策略：並行混搭多種餐點類型")
+            print(f"🔍 開始並行搜尋餐廳...")
+            print(f"🔍 搜尋策略：並行混搭多種餐點類型，距離限制 {max_distance_km}km")
             
             all_restaurants = []
             
@@ -104,6 +109,16 @@ class SmartRecommendationEngine:
                 
                 print(f"🎉 並行搜尋完成！總共收集到 {len(all_restaurants)} 家餐廳")
             
+            # 4.5. 根據距離限制過濾餐廳
+            print(f"📏 正在根據距離限制 {max_distance_km}km 過濾餐廳...")
+            filtered_restaurants = self._filter_restaurants_by_distance(all_restaurants, max_distance_km)
+            print(f"📊 距離過濾後剩餘 {len(filtered_restaurants)} 家餐廳")
+            
+            # 4.6. 去除重複餐廳
+            print(f"🔄 正在去除重複餐廳...")
+            unique_restaurants = self._remove_duplicate_restaurants(filtered_restaurants)
+            print(f"📊 去重後剩餘 {len(unique_restaurants)} 家餐廳")
+            
             # 5. 依距離升冪排序（近距離優先）
             print(f"📊 正在依距離排序...")
             def get_distance_score(restaurant):
@@ -115,12 +130,12 @@ class SmartRecommendationEngine:
                 except (ValueError, TypeError):
                     return 999999
             
-            all_restaurants.sort(key=get_distance_score, reverse=False)
+            unique_restaurants.sort(key=get_distance_score, reverse=False)
             
             # 限制最終結果數量
-            restaurants = all_restaurants[:max_results]
+            restaurants = unique_restaurants[:max_results]
             
-            print(f"✅ 搜尋完成，找到 {len(all_restaurants)} 家餐廳，顯示前 {len(restaurants)} 家（依距離排序）")
+            print(f"✅ 搜尋完成，找到 {len(all_restaurants)} 家餐廳，距離過濾後 {len(filtered_restaurants)} 家，去重後 {len(unique_restaurants)} 家，顯示前 {len(restaurants)} 家（依距離排序）")
             
             # 6. 為找到的餐廳逐一輸出詳細資訊（依距離排序）
             if restaurants:
@@ -153,7 +168,7 @@ class SmartRecommendationEngine:
                 type_summary = ', '.join([f"{t}({c}家)" for t, c in type_counts.items()])
                 recommendation_summary = f"根據目前天氣狀況（{temperature}°C，流汗指數{sweat_index}），為您推薦{len(restaurants)}家餐廳，混搭多種類型：{type_summary}。已依距離升冪排序，近距離餐廳優先推薦。"
             else:
-                recommendation_summary = "很抱歉，在指定範圍內沒有找到符合條件的餐廳。建議您：1) 擴大搜尋範圍 2) 嘗試其他關鍵字 3) 檢查位置是否正確"
+                recommendation_summary = f"很抱歉，在{max_distance_km}km範圍內沒有找到符合條件的餐廳。建議您：1) 嘗試其他關鍵字 2) 檢查位置是否正確"
             
             return {
                 "success": True,
@@ -161,6 +176,7 @@ class SmartRecommendationEngine:
                 "user_input": user_input,
                 "weather_info": sweat_data,
                 "search_keywords": search_keywords,
+                "max_distance_km": max_distance_km,
                 "restaurants": restaurants,
                 "total_found": len(restaurants),
                 "recommendation_summary": recommendation_summary,
@@ -176,6 +192,70 @@ class SmartRecommendationEngine:
                 "user_input": user_input,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
+    
+    def _calculate_max_distance_by_sweat_index(self, sweat_index):
+        """
+        根據流汗指數計算合適的搜尋距離範圍
+        流汗指數越高，搜尋範圍越小（避免走太遠）
+        """
+        try:
+            sweat_index = float(sweat_index) if sweat_index is not None else 5.0
+        except (ValueError, TypeError):
+            sweat_index = 5.0
+        
+        if sweat_index >= 9:
+            return 0.5  # 非常熱，只搜尋500m內
+        elif sweat_index >= 7:
+            return 1.0  # 很熱，搜尋1km內
+        elif sweat_index >= 5:
+            return 1.5  # 偏熱，搜尋1.5km內
+        elif sweat_index >= 3:
+            return 2.0  # 適中，搜尋2km內
+        else:
+            return 3.0  # 涼爽，可搜尋3km內
+
+    def _filter_restaurants_by_distance(self, restaurants, max_distance_km):
+        """
+        根據距離限制過濾餐廳
+        """
+        filtered = []
+        for restaurant in restaurants:
+            distance = restaurant.get('distance_km')
+            if distance is None or distance == 'N/A':
+                continue  # 跳過沒有距離資訊的餐廳
+            
+            try:
+                distance_float = float(distance)
+                if distance_float <= max_distance_km:
+                    filtered.append(restaurant)
+                else:
+                    print(f"   📏 過濾掉距離過遠的餐廳：{restaurant.get('name', 'Unknown')} ({distance}km > {max_distance_km}km)")
+            except (ValueError, TypeError):
+                continue  # 跳過距離格式錯誤的餐廳
+        
+        return filtered
+
+    def _remove_duplicate_restaurants(self, restaurants):
+        """
+        根據餐廳名稱和地址去除重複的餐廳
+        """
+        seen = set()
+        unique_restaurants = []
+        
+        for restaurant in restaurants:
+            name = restaurant.get('name', '').strip()
+            address = restaurant.get('address', '').strip()
+            
+            # 創建唯一標識符（名稱+地址前20字元）
+            identifier = f"{name}_{address[:20]}"
+            
+            if identifier not in seen:
+                seen.add(identifier)
+                unique_restaurants.append(restaurant)
+            else:
+                print(f"   🔄 發現重複餐廳，已跳過：{name}")
+        
+        return unique_restaurants
     
     def _get_time_based_keywords(self, current_hour):
         """根據當前時間推薦相應的餐點類型"""
@@ -320,7 +400,7 @@ class SmartRecommendationEngine:
         print(f"🌤️ 根據天氣推薦：{', '.join(weather_keywords)}")
         return weather_keywords
     
-    def _generate_search_plan(self, location, sweat_data, search_keywords, user_input):
+    def _generate_search_plan(self, location, sweat_data, search_keywords, user_input, max_distance_km=None):
         """
         生成詳細的搜尋計劃說明
         """
@@ -352,6 +432,10 @@ class SmartRecommendationEngine:
         if heat_index != '未知' and heat_index != temperature:
             plan_parts.append(f"🌡️ 體感溫度：{heat_index}°C")
         plan_parts.append(f"💧 流汗指數：{sweat_index}/10 ({comfort_level})")
+        
+        # 顯示距離限制
+        if max_distance_km:
+            plan_parts.append(f"📏 搜尋距離限制：{max_distance_km}km（根據流汗指數調整）")
         
         # 推薦邏輯說明
         if sweat_index_num > 6:
@@ -430,6 +514,9 @@ class SmartRecommendationEngine:
         sweat_index = sweat_data.get('sweat_index', 0)
         comfort_level = sweat_data.get('comfort_level', {}).get('level', '未知')
         
+        # 計算距離限制
+        max_distance_km = self._calculate_max_distance_by_sweat_index(sweat_index)
+        
         # 確保數值類型正確以供比較
         try:
             sweat_index_num = float(sweat_index) if sweat_index != '未知' else 0
@@ -441,6 +528,7 @@ class SmartRecommendationEngine:
         if heat_index != '未知' and heat_index != temperature:
             plan_parts.append(f"🌡️ 體感溫度：{heat_index}°C")
         plan_parts.append(f"💧 流汗指數：{sweat_index}/10 ({comfort_level})")
+        plan_parts.append(f"📏 搜尋距離限制：{max_distance_km}km（根據流汗指數調整）")
         
         # 推薦邏輯說明
         if sweat_index_num > 6:
