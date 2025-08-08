@@ -22,15 +22,16 @@ class SmartRecommendationEngine:
             # 1. 獲取天氣資料
             print(f"🌡️ 正在獲取天氣資料...")
             sweat_data = query_sweat_index_by_location(location)
-            sweat_index = sweat_data.get('sweat_index', 50)
+            # 使用較合理的預設值（避免過度縮小搜尋半徑）
+            sweat_index = sweat_data.get('sweat_index', 5.0)
             temperature = sweat_data.get('temperature', 25)
             
             # 確保數值類型正確
             try:
-                sweat_index = float(sweat_index) if sweat_index is not None else 50
+                sweat_index = float(sweat_index) if sweat_index is not None else 5.0
                 temperature = float(temperature) if temperature is not None else 25
             except (ValueError, TypeError):
-                sweat_index = 50
+                sweat_index = 5.0
                 temperature = 25
             
             # 1.5. 根據流汗指數計算搜尋距離範圍
@@ -39,6 +40,9 @@ class SmartRecommendationEngine:
             
             # 2. 選擇搜尋關鍵字（按您的要求：無冰品、沙拉，有熱炒、臭豆腐）
             search_keywords = self._get_search_keywords(user_input, sweat_index, temperature)
+            if not search_keywords:
+                # 關鍵字為空時的保底
+                search_keywords = ["熱炒", "便當", "麵食"]
             
             # 3. 先回傳搜尋計劃給用戶
             search_plan = self._generate_search_plan(location, sweat_data, search_keywords, user_input, max_distance_km)
@@ -70,10 +74,11 @@ class SmartRecommendationEngine:
             search_limit_per_type = max(2, max_results // len(search_keywords))
             
             # 使用 ThreadPoolExecutor 並行搜尋
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:  # 只用1個worker
+            # 視關鍵字數量動態調整 worker，提升搜尋覆蓋率但維持保守上限
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(4, len(search_keywords)))) as executor:
                 # 提交搜尋任務
                 future_to_keyword = {}
-                keywords_to_search = search_keywords[:2]  # 只搜尋前2種類型
+                keywords_to_search = search_keywords[:2]  # 維持前2種類型以控管負載
                 
                 for keyword in keywords_to_search:
                     future = executor.submit(
@@ -109,6 +114,20 @@ class SmartRecommendationEngine:
                 
                 print(f"🎉 並行搜尋完成！總共收集到 {len(all_restaurants)} 家餐廳")
             
+            # 若並行搜尋完全無結果，嘗試廣義回補關鍵字
+            if not all_restaurants:
+                try:
+                    fallback_keywords = ["餐廳", "美食"]
+                    for fb_kw in fallback_keywords:
+                        fb_results = search_restaurants(keyword=fb_kw, user_address=location, max_results=max(3, max_results))
+                        if fb_results:
+                            for rest in fb_results:
+                                rest['food_type'] = fb_kw
+                            all_restaurants.extend(fb_results)
+                            break
+                except Exception as _:
+                    pass
+
             # 4.5. 根據距離限制過濾餐廳
             print(f"📏 正在根據距離限制 {max_distance_km}km 過濾餐廳...")
             filtered_restaurants = self._filter_restaurants_by_distance(all_restaurants, max_distance_km)
@@ -134,6 +153,9 @@ class SmartRecommendationEngine:
             
             # 限制最終結果數量
             restaurants = unique_restaurants[:max_results]
+            # 如果過濾後還是沒有結果，保底回傳原始結果前幾筆，避免全空
+            if not restaurants and all_restaurants:
+                restaurants = all_restaurants[:max_results]
             
             print(f"✅ 搜尋完成，找到 {len(all_restaurants)} 家餐廳，距離過濾後 {len(filtered_restaurants)} 家，去重後 {len(unique_restaurants)} 家，顯示前 {len(restaurants)} 家（依距離排序）")
             
@@ -203,27 +225,31 @@ class SmartRecommendationEngine:
         except (ValueError, TypeError):
             sweat_index = 5.0
         
+        # 放寬半徑，避免過度收斂導致只剩極少數結果
         if sweat_index >= 9:
-            return 0.5  # 非常熱，只搜尋500m內
+            return 0.8  # 非常熱，~800m
         elif sweat_index >= 7:
-            return 1.0  # 很熱，搜尋1km內
+            return 1.5  # 很熱，1.5km
         elif sweat_index >= 5:
-            return 1.5  # 偏熱，搜尋1.5km內
+            return 2.5  # 偏熱，2.5km
         elif sweat_index >= 3:
-            return 2.0  # 適中，搜尋2km內
+            return 3.0  # 適中，3km
         else:
-            return 3.0  # 涼爽，可搜尋3km內
+            return 4.0  # 涼爽，4km
 
     def _filter_restaurants_by_distance(self, restaurants, max_distance_km):
         """
         根據距離限制過濾餐廳
         """
         filtered = []
+        unknown_distance = []
         for restaurant in restaurants:
             distance = restaurant.get('distance_km')
             if distance is None or distance == 'N/A':
-                continue  # 跳過沒有距離資訊的餐廳
-            
+                # 保留未知距離，避免把潛在好店全丟掉
+                unknown_distance.append(restaurant)
+                continue
+
             try:
                 distance_float = float(distance)
                 if distance_float <= max_distance_km:
@@ -231,9 +257,10 @@ class SmartRecommendationEngine:
                 else:
                     print(f"   📏 過濾掉距離過遠的餐廳：{restaurant.get('name', 'Unknown')} ({distance}km > {max_distance_km}km)")
             except (ValueError, TypeError):
-                continue  # 跳過距離格式錯誤的餐廳
-        
-        return filtered
+                unknown_distance.append(restaurant)
+
+        # 若完全沒有符合距離條件，至少回傳未知距離的選項以供使用者參考
+        return filtered if filtered else unknown_distance
 
     def _remove_duplicate_restaurants(self, restaurants):
         """
@@ -305,10 +332,10 @@ class SmartRecommendationEngine:
         
         # 確保數值類型正確
         try:
-            sweat_index = float(sweat_index) if sweat_index is not None else 50
+            sweat_index = float(sweat_index) if sweat_index is not None else 5.0
             temperature = float(temperature) if temperature is not None else 25
         except (ValueError, TypeError):
-            sweat_index = 50
+            sweat_index = 5.0
             temperature = 25
 
         # 獲取當前時間並判斷餐點類型

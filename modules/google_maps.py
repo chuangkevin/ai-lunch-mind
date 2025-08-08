@@ -581,14 +581,46 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
         geolocator = Nominatim(user_agent="lunch-recommendation-system", timeout=10)
         
         # 構建查詢列表，優先完整地址
-        search_queries = [
+        search_queries = []
+        
+        # 若地址包含常見「區」名但缺少「市/縣」，自動補城市（特別是台北常見情境）
+        has_city_or_county = any(city in address for city in ['市', '縣'])
+        district_to_city_map = {
+            # 台北市
+            '中正區': '台北市', '大同區': '台北市', '中山區': '台北市', '松山區': '台北市',
+            '大安區': '台北市', '萬華區': '台北市', '信義區': '台北市', '士林區': '台北市',
+            '北投區': '台北市', '內湖區': '台北市', '南港區': '台北市', '文山區': '台北市',
+            # 新北市（常見幾個）
+            '板橋區': '新北市', '新莊區': '新北市', '中和區': '新北市', '永和區': '新北市',
+            '三重區': '新北市', '蘆洲區': '新北市', '汐止區': '新北市', '新店區': '新北市',
+            '土城區': '新北市', '鶯歌區': '新北市', '三峽區': '新北市', '泰山區': '新北市',
+            '林口區': '新北市', '淡水區': '新北市', '五股區': '新北市', '八里區': '新北市',
+        }
+        mapped_city_prefix = None
+        if not has_city_or_county:
+            for district, city in district_to_city_map.items():
+                if district in normalized_address or district in completed_address or district in address:
+                    mapped_city_prefix = city
+                    break
+        
+        if mapped_city_prefix:
+            # 在最前面插入帶城市前綴的查詢，強化定位
+            search_queries.extend([
+                f"{mapped_city_prefix}{normalized_address}, Taiwan",
+                f"{mapped_city_prefix}{normalized_address}",
+                f"{mapped_city_prefix}{completed_address}, Taiwan",
+                f"{mapped_city_prefix}{completed_address}"
+            ])
+        
+        # 原有通用查詢
+        search_queries.extend([
             normalized_address + ", Taiwan",
             normalized_address,
-            completed_address + ", Taiwan", 
+            completed_address + ", Taiwan",
             completed_address,
             address + ", Taiwan",
             address
-        ]
+        ])
         
         # 特殊處理：如果是捷運站名，優先嘗試捷運相關查詢
         if address.endswith('站') and not any(keyword in address for keyword in ['市', '縣', '路', '街']):
@@ -603,7 +635,7 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
             search_queries = mrt_queries + search_queries
             logger.debug(f"檢測到可能的捷運站名，添加捷運查詢: {address}")
         
-        # 如果地址沒有包含市縣，嘗試補充台北市
+        # 如果地址沒有包含市縣但包含道路用詞，優先嘗試台北市（保持原有策略）
         if not any(city in address for city in ['市', '縣']) and any(road in address for road in ['路', '街', '大道']):
             search_queries.insert(0, f"台北市{address}, Taiwan")
             search_queries.insert(1, f"台北市{address}")
