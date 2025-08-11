@@ -640,25 +640,13 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
             search_queries.insert(0, f"台北市{address}, Taiwan")
             search_queries.insert(1, f"台北市{address}")
         
-        # 如果是詳細地址無法找到，嘗試簡化到道路級別
-        if '巷' in address or '號' in address:
-            # 提取主要道路部分（支援中文和數字段）
-            import re
-            # 匹配 "路名+段數" 但不包含巷弄門牌，支援中文數字
-            road_match = re.search(r'([^市縣區鄉鎮]*[路街大道](?:一|二|三|四|五|六|七|八|九|\d+)*段?)', address)
-            if road_match:
-                main_road = road_match.group(1).strip()
-                search_queries.extend([
-                    f"台北市{main_road}, Taiwan",
-                    f"{main_road}, Taiwan",
-                    main_road
-                ])
-                logger.debug(f"添加簡化道路查詢: {main_road}")
-        
         logger.debug(f"完整查詢列表: {search_queries}")
         
-        # 嘗試每個查詢
-        for query in search_queries:
+        # 嘗試每個查詢，但優先保持原始精度
+        best_result = None
+        best_query_score = 0
+        
+        for i, query in enumerate(search_queries):
             try:
                 logger.debug(f"嘗試查詢: {query}")
                 location = geolocator.geocode(query, limit=1)
@@ -666,14 +654,98 @@ def geocode_address(address: str, search_location: Optional[str] = None) -> Opti
                 if location and location.latitude and location.longitude:
                     # 驗證座標在台灣範圍內
                     if 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
-                        logger.info(f"✅ 地理編碼成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
-                        return (location.latitude, location.longitude)
-                    else:
-                        logger.debug(f"座標超出台灣範圍: {location.latitude}, {location.longitude}")
+                        # 計算查詢品質分數（越早的查詢越好，包含更多細節的查詢越好）
+                        query_score = 100 - i  # 基礎分數，越早越高
+                        
+                        # 保持完整地址的獎勵分數
+                        if '巷' in query and '號' in query:
+                            query_score += 50  # 完整地址大獎勵
+                        elif '巷' in query or '號' in query:
+                            query_score += 25  # 部分細節獎勵
+                        elif '段' in query:
+                            query_score += 10  # 段級別獎勵
+                        
+                        # 如果這是第一個結果或者分數更高，記錄為最佳結果
+                        if best_result is None or query_score > best_query_score:
+                            best_result = (location.latitude, location.longitude)
+                            best_query_score = query_score
+                            best_query = query
+                        
+                        # 如果找到完整地址級別的結果，立即返回
+                        if '巷' in query and '號' in query:
+                            logger.info(f"✅ 找到完整地址級別結果: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
+                            return (location.latitude, location.longitude)
                         
             except Exception as e:
                 logger.debug(f"查詢失敗: {query} - {e}")
                 continue
+        
+        # 如果有找到結果，返回最佳的
+        if best_result:
+            logger.info(f"✅ 地理編碼成功: {best_query} -> ({best_result[0]:.4f}, {best_result[1]:.4f})")
+            return best_result
+        
+        # 如果完整地址都找不到，嘗試台灣特殊處理策略
+        if '巷' in address or '號' in address:
+            logger.warning(f"完整地址查詢失敗，嘗試台灣地址特殊處理: {address}")
+            import re
+            
+            # 台灣地址特殊處理：逐級簡化但保持精度
+            fallback_strategies = []
+            
+            # 策略1: 去掉門牌號但保留巷弄
+            if '號' in address:
+                addr_without_number = re.sub(r'\d+號.*$', '', address)
+                if addr_without_number != address:
+                    fallback_strategies.extend([
+                        f"{addr_without_number}, Taiwan",
+                        addr_without_number
+                    ])
+            
+            # 策略2: 去掉弄但保留巷
+            if '弄' in address:
+                addr_without_alley = re.sub(r'\d+弄.*$', '', address)
+                if addr_without_alley != address:
+                    fallback_strategies.extend([
+                        f"{addr_without_alley}, Taiwan", 
+                        addr_without_alley
+                    ])
+            
+            # 策略3: 保留到巷級別
+            if '巷' in address:
+                addr_to_lane = re.sub(r'(\d+巷).*$', r'\1', address)
+                if addr_to_lane != address:
+                    fallback_strategies.extend([
+                        f"{addr_to_lane}, Taiwan",
+                        addr_to_lane
+                    ])
+            
+            # 策略4: 最後才簡化到路段
+            road_match = re.search(r'([^市縣區鄉鎮]*[路街大道](?:一|二|三|四|五|六|七|八|九|\d+)*段?)', address)
+            if road_match:
+                main_road = road_match.group(1).strip()
+                fallback_strategies.extend([
+                    f"台北市{main_road}, Taiwan",
+                    f"{main_road}, Taiwan",
+                    main_road
+                ])
+            
+            # 依次嘗試各種簡化策略
+            for i, query in enumerate(fallback_strategies):
+                try:
+                    logger.debug(f"台灣地址簡化嘗試 {i+1}: {query}")
+                    location = geolocator.geocode(query, limit=1)
+                    if location and 21.0 <= location.latitude <= 26.0 and 119.0 <= location.longitude <= 122.5:
+                        # 根據簡化程度給予不同的警告級別
+                        if '巷' in query:
+                            logger.info(f"✅ 巷級別簡化成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
+                        elif '段' in query:
+                            logger.warning(f"⚠️ 段級別簡化成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
+                        else:
+                            logger.warning(f"⚠️ 道路級別簡化成功: {query} -> ({location.latitude:.4f}, {location.longitude:.4f})")
+                        return (location.latitude, location.longitude)
+                except Exception:
+                    continue
                 
     except Exception as e:
         logger.error(f"地理編碼服務異常: {e}")
@@ -1196,9 +1268,119 @@ def search_duckduckgo(keyword: str, location: str = "台灣") -> List[Dict[str, 
         print(f"[DuckDuckGo] 搜尋失敗: {e}")
         return []
 
+def calculate_walking_distance_from_google_maps(user_address: str, restaurant_address: str) -> Tuple[float, int, str]:
+    """
+    使用 Google Maps 網頁版獲取真實的步行距離和時間
+    :param user_address: 使用者地址
+    :param restaurant_address: 餐廳地址
+    :return: (距離(公里), 步行時間(分鐘), Google Maps URL)
+    """
+    try:
+        # 構建 Google Maps 路線查詢 URL
+        base_url = "https://www.google.com/maps/dir/"
+        encoded_user = urllib.parse.quote(user_address)
+        encoded_restaurant = urllib.parse.quote(restaurant_address)
+        url = f"{base_url}{encoded_user}/{encoded_restaurant}"
+        
+        print(f"🚶 正在查詢實際步行路線: {user_address} → {restaurant_address}")
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        session = requests.Session()
+        response = session.get(url, headers=headers, timeout=10, verify=False)
+        
+        if response.status_code == 200:
+            content = response.text
+            
+            # 尋找步行距離和時間的模式
+            # Google Maps 通常顯示如 "1 分 (89 公尺)" 或 "5 分鐘 (400 公尺)"
+            walking_pattern = r'(\d+)\s*分[鐘]?\s*\((\d+)\s*[公]?[尺米][尺]?\)'
+            walking_match = re.search(walking_pattern, content)
+            
+            if walking_match:
+                minutes = int(walking_match.group(1))
+                meters = int(walking_match.group(2))
+                distance_km = meters / 1000.0
+                
+                print(f"✅ Google Maps 路線: {minutes}分鐘, {meters}公尺")
+                return round(distance_km, 3), minutes, url
+            
+            # 備用模式：尋找其他可能的格式
+            distance_patterns = [
+                r'(\d+)\s*公尺',
+                r'(\d+)\s*米',
+                r'(\d+\.\d+)\s*公里',
+                r'(\d+\.\d+)\s*km'
+            ]
+            
+            for pattern in distance_patterns:
+                match = re.search(pattern, content)
+                if match:
+                    value = float(match.group(1))
+                    if '公里' in pattern or 'km' in pattern:
+                        distance_km = value
+                    else:
+                        distance_km = value / 1000.0
+                    
+                    # 估算步行時間（假設每分鐘80公尺）
+                    estimated_minutes = int((distance_km * 1000) / 80)
+                    print(f"✅ Google Maps 距離: {distance_km:.3f}km (估算{estimated_minutes}分鐘)")
+                    return round(distance_km, 3), estimated_minutes, url
+        
+        print(f"❌ 無法從 Google Maps 獲取步行路線資訊")
+        return None, None, url  # 即使無法獲取距離，也返回URL供用戶點擊
+        
+    except Exception as e:
+        print(f"❌ Google Maps 路線查詢失敗: {str(e)}")
+        # 即使發生錯誤，也嘗試構建基本的 Google Maps URL
+        try:
+            base_url = "https://www.google.com/maps/dir/"
+            encoded_user = urllib.parse.quote(user_address)
+            encoded_restaurant = urllib.parse.quote(restaurant_address)
+            url = f"{base_url}{encoded_user}/{encoded_restaurant}"
+            return None, None, url
+        except:
+            for pattern in distance_patterns:
+                match = re.search(pattern, content)
+                if match:
+                    value = float(match.group(1))
+                    if '公里' in pattern or 'km' in pattern:
+                        distance_km = value
+                    else:
+                        distance_km = value / 1000.0
+                    
+                    # 估算步行時間（假設每分鐘80公尺）
+                    estimated_minutes = int((distance_km * 1000) / 80)
+                    print(f"✅ Google Maps 距離: {distance_km:.3f}km (估算{estimated_minutes}分鐘)")
+                    return round(distance_km, 3), estimated_minutes, url
+        
+        print(f"❌ 無法從 Google Maps 獲取步行路線資訊")
+        return None, None, url  # 即使無法獲取距離，也返回URL供用戶點擊
+        
+    except Exception as e:
+        print(f"❌ Google Maps 路線查詢失敗: {str(e)}")
+        # 即使發生錯誤，也嘗試構建基本的 Google Maps URL
+        try:
+            base_url = "https://www.google.com/maps/dir/"
+            encoded_user = urllib.parse.quote(user_address)
+            encoded_restaurant = urllib.parse.quote(restaurant_address)
+            url = f"{base_url}{encoded_user}/{encoded_restaurant}"
+            return None, None, url
+        except:
+            return None, None, None
+        print(f"❌ Google Maps 路線查詢失敗: {str(e)}")
+        return None, None
+
 def calculate_distance(user_coords: Tuple[float, float], restaurant_coords: Tuple[float, float]) -> float:
     """
-    計算兩點間距離
+    計算兩點間直線距離（僅作為備用方案）
     :param user_coords: 使用者座標 (lat, lon)
     :param restaurant_coords: 餐廳座標 (lat, lon)
     :return: 距離（公里）
@@ -1208,6 +1390,74 @@ def calculate_distance(user_coords: Tuple[float, float], restaurant_coords: Tupl
         return round(distance, 2)
     except Exception:
         return None
+
+def estimate_distance_by_address(user_address: str, restaurant_address: str) -> float:
+    """
+    基於地址相似度估算距離（當GPS座標相同時的備用方案）
+    針對台灣地址的巷弄門牌進行智能估算
+    """
+    import re
+    
+    try:
+        # 清理地址格式
+        user_clean = user_address.replace('台北市', '').replace('松山區', '').strip()
+        restaurant_clean = restaurant_address.replace('台北市', '').replace('松山區', '').strip()
+        
+        # 提取地址組件
+        def extract_address_components(addr):
+            components = {}
+            # 路段
+            road_match = re.search(r'([^市縣區鄉鎮]*[路街大道](?:一|二|三|四|五|六|七|八|九|\d+)*段?)', addr)
+            components['road'] = road_match.group(1) if road_match else ''
+            
+            # 巷號
+            lane_match = re.search(r'(\d+)巷', addr)
+            components['lane'] = int(lane_match.group(1)) if lane_match else 0
+            
+            # 弄號
+            alley_match = re.search(r'(\d+)弄', addr)
+            components['alley'] = int(alley_match.group(1)) if alley_match else 0
+            
+            # 門牌號
+            number_match = re.search(r'(\d+)號', addr)
+            components['number'] = int(number_match.group(1)) if number_match else 0
+            
+            return components
+        
+        user_comp = extract_address_components(user_clean)
+        restaurant_comp = extract_address_components(restaurant_clean)
+        
+        # 如果不在同一路段，返回較大距離
+        if user_comp['road'] != restaurant_comp['road']:
+            return 1.0  # 不同路段，估算1公里
+        
+        # 計算地址差異距離
+        distance = 0.0
+        
+        # 巷的差異（每差1巷約100-200米）
+        lane_diff = abs(user_comp['lane'] - restaurant_comp['lane'])
+        if lane_diff > 0:
+            distance += lane_diff * 0.15  # 每巷150米
+        
+        # 弄的差異（每差1弄約50-100米）
+        alley_diff = abs(user_comp['alley'] - restaurant_comp['alley'])
+        if alley_diff > 0:
+            distance += alley_diff * 0.08  # 每弄80米
+        
+        # 門牌號的差異（每差10號約50米）
+        number_diff = abs(user_comp['number'] - restaurant_comp['number'])
+        if number_diff > 0:
+            distance += (number_diff / 10) * 0.05  # 每10號50米
+        
+        # 如果都在同一巷弄，至少有最小距離
+        if distance == 0:
+            distance = 0.05  # 同巷弄最小50米
+        
+        return round(distance, 2)
+        
+    except Exception as e:
+        logger.debug(f"地址距離估算失敗: {e}")
+        return 0.1  # 預設100米
 
 def search_restaurants_parallel(keyword: str, location_info: Optional[Dict] = None, max_results: int = 10) -> List[Dict[str, Any]]:
     """
@@ -1554,46 +1804,87 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             except:
                 pass
         
-        # 提取評分 - 使用更多選擇器
+        # 提取評分 - 使用更全面的選擇器和解析策略
         rating_selectors = [
             "span.yi40Hd",      # 主要評分樣式
             "span.MW4etd",      # 另一種評分樣式
             ".BTtC6e",          # 其他評分樣式
             "span[aria-label*='star']",  # 包含 star 的 aria-label
             "span[aria-label*='星']",    # 包含中文星的 aria-label
+            "div.fontDisplayLarge", # 大字體評分
+            "span.fontDisplayLarge", # 大字體評分
+            ".ceNzKf",          # Google Maps 評分樣式
+            "span.ZkP5Je",      # 新的評分樣式
+            ".Aq14fc",          # 另一種新樣式
+            "span[jsaction*='pane']", # 包含評分的互動元素
         ]
+        
+        logger.debug(f"開始搜尋評分 - 餐廳: {restaurant_info.get('name', '未知')}")
         
         for selector in rating_selectors:
             try:
-                rating_element = element.find_element(By.CSS_SELECTOR, selector)
-                rating_text = rating_element.text.strip()
-                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                if rating_match:
-                    rating_value = float(rating_match.group(1))
-                    if 0 <= rating_value <= 5:  # 確保評分在合理範圍
-                        restaurant_info['rating'] = rating_value
+                rating_elements = element.find_elements(By.CSS_SELECTOR, selector)
+                logger.debug(f"選擇器 {selector} 找到 {len(rating_elements)} 個元素")
+                
+                for rating_element in rating_elements:
+                    rating_text = rating_element.text.strip()
+                    logger.debug(f"檢查評分文字: '{rating_text}'")
+                    
+                    # 多種評分格式解析
+                    rating_patterns = [
+                        r'^(\d+\.?\d*)$',        # 純數字: 4.5
+                        r'(\d+\.?\d*)\s*星',      # 中文: 4.5星
+                        r'(\d+\.?\d*)\s*star',    # 英文: 4.5 star
+                        r'(\d+\.?\d*)/5',        # 分數: 4.5/5
+                        r'(\d+\.?\d*)\s*out\s*of\s*5',  # 完整: 4.5 out of 5
+                        r'評分\s*(\d+\.?\d*)',    # 評分 4.5
+                    ]
+                    
+                    for pattern in rating_patterns:
+                        rating_match = re.search(pattern, rating_text, re.IGNORECASE)
+                        if rating_match:
+                            rating_value = float(rating_match.group(1))
+                            if 0 <= rating_value <= 5:  # 確保評分在合理範圍
+                                restaurant_info['rating'] = rating_value
+                                logger.info(f"✅ 找到評分: {rating_value} (來源: {rating_text}) - {restaurant_info.get('name', '未知')}")
+                                break
+                    if restaurant_info['rating'] is not None:
                         break
-            except:
+                if restaurant_info['rating'] is not None:
+                    break
+            except Exception as e:
+                logger.debug(f"選擇器 {selector} 發生錯誤: {e}")
                 continue
         
-        # 如果上面的方法都失敗，嘗試從 aria-label 或文字中提取
+        # 如果上面的方法都失敗，嘗試從 aria-label 或完整文字中提取
         if restaurant_info['rating'] is None:
             try:
-                # 檢查所有 span 的 aria-label
-                spans = element.find_elements(By.TAG_NAME, "span")
-                for span in spans:
-                    aria_label = span.get_attribute('aria-label') or ''
-                    span_text = span.text.strip()
+                # 檢查所有元素的 aria-label 和文字
+                all_elements = element.find_elements(By.XPATH, ".//*")
+                for elem in all_elements:
+                    aria_label = elem.get_attribute('aria-label') or ''
+                    elem_text = elem.text.strip()
                     
                     # 從 aria-label 或文字中找評分
-                    for text in [aria_label, span_text]:
-                        if text:
-                            rating_match = re.search(r'(\d+\.?\d*)\s*(?:星|star)', text, re.IGNORECASE)
-                            if rating_match:
-                                rating_value = float(rating_match.group(1))
-                                if 0 <= rating_value <= 5:
-                                    restaurant_info['rating'] = rating_value
-                                    break
+                    for text in [aria_label, elem_text]:
+                        if text and len(text) < 50:  # 避免處理過長文字
+                            rating_patterns = [
+                                r'(\d+\.?\d*)\s*(?:星|star|颗星)',
+                                r'rated\s*(\d+\.?\d*)',
+                                r'評分[：:]\s*(\d+\.?\d*)',
+                                r'(\d+\.?\d*)\s*/\s*5',
+                                r'^(\d+\.?\d*)$'  # 純數字，但限制在短文字內
+                            ]
+                            for pattern in rating_patterns:
+                                rating_match = re.search(pattern, text, re.IGNORECASE)
+                                if rating_match:
+                                    rating_value = float(rating_match.group(1))
+                                    if 0 <= rating_value <= 5:
+                                        restaurant_info['rating'] = rating_value
+                                        logger.debug(f"從文字/aria-label找到評分: {rating_value} (來源: {text[:30]})")
+                                        break
+                            if restaurant_info['rating'] is not None:
+                                break
                     if restaurant_info['rating'] is not None:
                         break
             except:
@@ -1702,25 +1993,85 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             if user_coords:
                 try:
                     logger.debug(f"嘗試計算距離 - 用戶座標: {user_coords}, 餐廳地址: {restaurant_info.get('address')}")
-                    # 傳入搜尋位置以協助地址補全
-                    search_location = location_info.get('address') if location_info else None
-                    restaurant_coords = geocode_address(restaurant_info['address'], search_location)
+                    
+                    # 改進餐廳地址處理，避免過度簡化
+                    restaurant_address = restaurant_info['address']
+                    
+                    # 如果餐廳地址以 "·" 開頭，需要補全城市資訊
+                    if restaurant_address.startswith('·'):
+                        # 從用戶地址中提取城市區域資訊
+                        search_location = location_info.get('address', '') if location_info else ''
+                        if '市' in search_location and '區' in search_location:
+                            # 提取市區資訊，例如 "台北市松山區"
+                            import re
+                            city_district_match = re.search(r'([^,]*?市[^,]*?區)', search_location)
+                            if city_district_match:
+                                city_district = city_district_match.group(1)
+                                # 組合完整地址，移除開頭的 "·"
+                                restaurant_address = city_district + restaurant_address[1:].strip()
+                                logger.debug(f"補全餐廳地址: {restaurant_info['address']} -> {restaurant_address}")
+                        else:
+                            # 簡單補全台北市（預設）
+                            restaurant_address = "台北市" + restaurant_address[1:].strip()
+                    
+                    restaurant_coords = geocode_address(restaurant_address, search_location)
                     if restaurant_coords:
-                        distance = calculate_distance(user_coords, restaurant_coords)
-                        if distance is not None:
-                            restaurant_info['distance_km'] = distance
-                            # 格式化距離字串
-                            if distance < 1:
-                                restaurant_info['distance'] = f"{int(distance * 1000)}公尺"
+                        # 優先使用 Google Maps 真實步行路線
+                        user_address = location_info.get('address', '')
+                        if user_address and restaurant_address:
+                            walking_distance, walking_minutes, google_maps_url = calculate_walking_distance_from_google_maps(
+                                user_address, restaurant_address
+                            )
+                            
+                            # 保存 Google Maps URL，不論是否成功獲取距離
+                            if google_maps_url:
+                                restaurant_info['google_maps_url'] = google_maps_url
+                            
+                            if walking_distance is not None:
+                                distance = walking_distance
+                                restaurant_info['walking_minutes'] = walking_minutes
+                                logger.info(f"🚶 Google Maps 步行路線: {distance:.3f}km, {walking_minutes}分鐘 - {restaurant_info.get('name', '未知餐廳')}")
                             else:
-                                restaurant_info['distance'] = f"{distance:.1f}公里"
+                                # 備用方案：使用GPS直線距離
+                                distance = calculate_distance(user_coords, restaurant_coords)
+                                logger.info(f"📍 使用GPS直線距離: {distance}km - {restaurant_info.get('name', '未知餐廳')}")
+                        else:
+                            # 備用方案：使用GPS直線距離
+                            distance = calculate_distance(user_coords, restaurant_coords)
+                            logger.info(f"📍 使用GPS直線距離: {distance}km - {restaurant_info.get('name', '未知餐廳')}")
+                        
+                        if distance is not None:
+                            # 如果GPS計算距離為0，使用地址估算作為補充
+                            if distance == 0.0:
+                                estimated_distance = estimate_distance_by_address(
+                                    location_info.get('address', ''), 
+                                    restaurant_address
+                                )
+                                distance = estimated_distance
+                                logger.info(f"🎯 使用地址估算距離: {distance} km - {restaurant_info.get('name', '未知餐廳')}")
+                            
+                            restaurant_info['distance_km'] = distance
+                            # 格式化距離字串 - 優先使用 Google Maps 的格式
+                            if restaurant_info.get('google_maps_url') and restaurant_info.get('walking_minutes'):
+                                # 有 Google Maps 資料，使用步行時間格式
+                                if distance < 1:
+                                    distance_text = f"{int(distance * 1000)}公尺"
+                                else:
+                                    distance_text = f"{distance:.1f}公里"
+                                restaurant_info['distance'] = distance_text
+                            else:
+                                # 沒有 Google Maps 資料，使用標準格式
+                                if distance < 1:
+                                    restaurant_info['distance'] = f"{int(distance * 1000)}公尺"
+                                else:
+                                    restaurant_info['distance'] = f"{distance:.1f}公里"
                             logger.info(f"✅ 距離計算成功: {distance} km - {restaurant_info.get('name', '未知餐廳')}")
                         else:
                             restaurant_info['distance'] = "距離未知"
                             logger.warning(f"❌ 距離計算返回 None - {restaurant_info.get('name', '未知餐廳')}")
                     else:
                         restaurant_info['distance'] = "距離未知"
-                        logger.warning(f"❌ 餐廳地址地理編碼失敗: {restaurant_info.get('address')}")
+                        logger.warning(f"❌ 餐廳地址地理編碼失敗: {restaurant_address}")
                 except Exception as e:
                     logger.debug(f"距離計算異常: {e}")
             else:

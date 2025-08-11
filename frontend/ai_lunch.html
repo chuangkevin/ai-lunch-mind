@@ -183,6 +183,18 @@
       text-decoration: underline;
     }
     
+    .distance-link {
+      color: #007bff !important;
+      text-decoration: none !important;
+      font-weight: bold !important;
+      transition: color 0.2s ease;
+    }
+    
+    .distance-link:hover {
+      color: #0056b3 !important;
+      text-decoration: underline !important;
+    }
+    
     .weather-summary {
       background: linear-gradient(135deg, #74b9ff, #0984e3);
       color: white;
@@ -365,7 +377,17 @@
         infoItems.push(`<span>⭐ ${restaurant.rating}</span>`);
       }
       if (restaurant.distance_km !== undefined && restaurant.distance_km !== null) {
-        infoItems.push(`<span>📍 ${restaurant.distance_km}km</span>`);
+        if (restaurant.google_maps_url) {
+          // 有 Google Maps URL，顯示為可點擊的連結
+          let distanceText = restaurant.distance || `${restaurant.distance_km}km`;
+          if (restaurant.walking_minutes) {
+            distanceText = `${restaurant.walking_minutes}分 (${distanceText})`;
+          }
+          infoItems.push(`<span>📍 <a href="${restaurant.google_maps_url}" target="_blank" class="distance-link">${distanceText}</a></span>`);
+        } else {
+          // 沒有 Google Maps URL，顯示普通文字
+          infoItems.push(`<span>📍 ${restaurant.distance_km}km</span>`);
+        }
       }
       if (restaurant.price_level) {
         infoItems.push(`<span>💰 ${restaurant.price_level}</span>`);
