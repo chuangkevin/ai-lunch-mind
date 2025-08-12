@@ -21,6 +21,11 @@
     .restaurant-address { color: #6c757d; margin: 0.3em 0; }
     .restaurant-link { color: #007bff; text-decoration: none; font-size: 0.9em; }
     .restaurant-link:hover { text-decoration: underline; }
+  .hours-row { margin-top: 0.5em; font-size: 0.92em; display: flex; align-items: center; gap: 8px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.8em; font-weight: 600; }
+  .badge-open { background: #e8f7ee; color: #146c43; border: 1px solid #a3e6bf; }
+  .badge-closed { background: #fdecea; color: #b42318; border: 1px solid #f5c2c7; }
+  .badge-unknown { background: #eef2ff; color: #1e3a8a; border: 1px solid #c7d2fe; }
     .chat-input-area { display: flex; flex-direction: column; padding: 1.2em; border-top: 1px solid #e5e7eb; background: #f7fafc; border-radius: 0 0 16px 16px; }
     .input-row { display: flex; gap: 0.8em; margin-bottom: 0.8em; }
     .chat-input { flex: 1; padding: 0.8em 1em; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1em; outline: none; }
@@ -88,7 +93,9 @@
       if (restaurant.address) {
         infoItems.push(`📍 ${restaurant.address}`);
       }
-      if (restaurant.distance_km !== null && restaurant.distance_km !== undefined) {
+      if (restaurant.distance) {
+        infoItems.push(`📏 ${restaurant.distance}`);
+      } else if (restaurant.distance_km !== null && restaurant.distance_km !== undefined) {
         infoItems.push(`📏 距離 <span class="restaurant-distance">${restaurant.distance_km} 公里</span>`);
       }
       if (restaurant.rating) {
@@ -101,10 +108,20 @@
       if (infoItems.length > 0) {
         html += `<div class="restaurant-info">${infoItems.join('<br>')}</div>`;
       }
+      // 營業狀態/營業時間
+      const openNow = restaurant.open_now;
+      const statusText = restaurant.hours_status || '';
+      let badgeClass = 'badge-unknown';
+      let badgeText = '營業資訊未知';
+      if (openNow === true) { badgeClass = 'badge-open'; badgeText = '營業中'; }
+      else if (openNow === false) { badgeClass = 'badge-closed'; badgeText = '休息中'; }
+      else if (statusText.includes('24 小時')) { badgeClass = 'badge-open'; badgeText = '24 小時營業'; }
+      html += `<div class="hours-row"><span class="badge ${badgeClass}">${badgeText}</span>${statusText ? `<span>${statusText}</span>` : ''}</div>`;
       
-      if (restaurant.maps_url) {
+      const mapsLink = restaurant.google_maps_url || restaurant.maps_url;
+      if (mapsLink) {
         html += `<div style="margin-top: 0.8em;">`;
-        html += `<a href="${restaurant.maps_url}" target="_blank" class="restaurant-link">🗺️ 在 Google Maps 中查看</a>`;
+        html += `<a href="${mapsLink}" target="_blank" class="restaurant-link">🗺️ 在 Google Maps 中查看</a>`;
         html += `</div>`;
       }
       

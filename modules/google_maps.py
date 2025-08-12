@@ -1557,6 +1557,19 @@ def search_restaurants_parallel(keyword: str, location_info: Optional[Dict] = No
         return []
     
     unique_restaurants = remove_duplicate_restaurants(all_restaurants)
+
+    # 過濾未營業店家（若明確偵測為休息/打烊/歇業）
+    def is_open(r: Dict[str, Any]) -> bool:
+        on = r.get('open_now')
+        if on is False:
+            return False
+        status = (r.get('hours_status') or '').strip()
+        if status:
+            if any(k in status for k in ["已歇業", "永久歇業", "暫停營業", "休息中", "已打烊", "今日未營業", "非營業日"]):
+                return False
+        return True
+
+    unique_restaurants = [r for r in unique_restaurants if is_open(r)]
     if location_info and location_info.get('coords'):
         unique_restaurants = sort_restaurants_by_distance(unique_restaurants, location_info['coords'])
     final_results = unique_restaurants[:max_results]
@@ -1716,7 +1729,12 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         'distance': '距離未知',
         'maps_url': '',
         'phone': '',
-        'review_count': None
+    'review_count': None,
+    # 營業時間/狀態
+    'open_now': None,             # True=營業中, False=休息中, None=未知
+    'hours_status': None,         # 例如: "營業中 · 將於 21:00 結束營業"
+    'next_open_time': None,       # 例如: "上午 11:00"
+    'close_time': None            # 例如: "下午 9:00"
     }
     
     try:
@@ -2004,7 +2022,7 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             except:
                 pass
         
-        # 提取價格資訊
+    # 提取價格資訊
         try:
             full_text = element.text
             price_patterns = [
@@ -2042,6 +2060,84 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                         except ValueError:
                             continue
         except:
+            pass
+
+        # 提取營業狀態與今日營業資訊（避免推薦未營業店家）
+        try:
+            def parse_hours_status(text: str) -> Tuple[Optional[bool], Optional[str], Optional[str], Optional[str]]:
+                if not text:
+                    return None, None, None, None
+                # 標準化
+                t = re.sub(r"\s+", " ", text)
+                # 快速判斷
+                open_now = None
+                hours_status = None
+                next_open_time = None
+                close_time = None
+
+                # 永久或暫停營業
+                if re.search(r"(已歇業|永久歇業|暫停營業)", t):
+                    return False, "已歇業/暫停營業", None, None
+
+                if re.search(r"24\s*小時\s*營業", t):
+                    open_now = True
+                    hours_status = "24 小時營業"
+                    return open_now, hours_status, None, None
+
+                # 營業中/休息中
+                if "營業中" in t or "即將打烊" in t:
+                    open_now = True
+                if "休息中" in t or "已打烊" in t or "打烊" in t and "即將打烊" not in t:
+                    open_now = False if open_now is None else open_now
+
+                # 將於 HH:MM 開門/結束營業
+                m_open = re.search(r"將於\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})\s*(開門|開始營業)", t)
+                if m_open:
+                    next_open_time = f"{m_open.group(1) or ''} {m_open.group(2)}:{m_open.group(3)}".strip()
+                    open_now = False
+                m_close = re.search(r"將於\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})\s*(?:結束營業|關門|打烊)", t)
+                if m_close:
+                    close_time = f"{m_close.group(1) or ''} {m_close.group(2)}:{m_close.group(3)}".strip()
+                    if open_now is None:
+                        open_now = True
+
+                # 簡單的狀態摘要（擷取含「營業」「打烊」「休息」的短句）
+                status_snippets = []
+                for seg in re.split(r"[\u00B7·•\|\\/\n]", t):
+                    seg = seg.strip()
+                    if any(k in seg for k in ["營業", "打烊", "休息", "開門"]):
+                        # 過長片段略過
+                        if 0 < len(seg) <= 40:
+                            status_snippets.append(seg)
+                if status_snippets:
+                    hours_status = " · ".join(dict.fromkeys(status_snippets))
+
+                return open_now, hours_status, next_open_time, close_time
+
+            # 先從元素全文本判斷
+            hours_open_now, hours_status, next_open, closes_at = parse_hours_status(element.text)
+
+            # 若未找到，再掃描 aria-label/子節點文字（成本較低）
+            if hours_open_now is None and (not hours_status):
+                try:
+                    child_nodes = element.find_elements(By.XPATH, ".//*")
+                    collected = []
+                    for node in child_nodes[:40]:  # 限制掃描數量
+                        al = node.get_attribute('aria-label') or ''
+                        tx = node.text or ''
+                        if any(k in al for k in ["營業", "打烊", "休息", "開門"]) or any(k in tx for k in ["營業", "打烊", "休息", "開門"]):
+                            collected.append(al or tx)
+                    if collected:
+                        hours_open_now, hours_status, next_open, closes_at = parse_hours_status(" | ".join(collected))
+                except Exception:
+                    pass
+
+            # 寫入餐廳資訊
+            restaurant_info['open_now'] = hours_open_now
+            restaurant_info['hours_status'] = hours_status
+            restaurant_info['next_open_time'] = next_open
+            restaurant_info['close_time'] = closes_at
+        except Exception as _:
             pass
         
         # 計算距離（優先嘗試 Google Maps 步行，不再硬性依賴地理編碼）
@@ -2382,6 +2478,19 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
         logger.info("Selenium 搜尋無結果，使用備用搜尋方案")
         results = search_google_maps_web_fallback(keyword, location_info)
     
+    # 最終過濾：排除明確未營業的店家
+    def is_open(r: Dict[str, Any]) -> bool:
+        on = r.get('open_now')
+        if on is False:
+            return False
+        status = (r.get('hours_status') or '').strip()
+        if status:
+            if any(k in status for k in ["已歇業", "永久歇業", "暫停營業", "休息中", "已打烊", "今日未營業", "非營業日"]):
+                return False
+        return True
+
+    results = [r for r in results if is_open(r)]
+
     # 為每個結果驗證並優化URL
     for restaurant in results:
         if restaurant.get('name'):
