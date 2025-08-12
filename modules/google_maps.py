@@ -338,36 +338,61 @@ def extract_location_from_url(url: str) -> Optional[Tuple[float, float, str]]:
             url = expand_short_url(url)
             if url == original_url:
                 logger.warning("短網址展開失敗，使用原始URL")
+                # 再嘗試一次直接跟隨重定向取得最終URL
+                try:
+                    session = create_session()
+                    resp = session.get(original_url, allow_redirects=True, timeout=15)
+                    if resp and resp.url:
+                        url = resp.url
+                        logger.info(f"第二次直接展開成功: {original_url} -> {url}")
+                except Exception:
+                    pass
         
         logger.info(f"處理URL: {url}")
         
-        # 多種座標提取模式
-        coordinate_patterns = [
-            r'/@(-?\d+\.\d+),(-?\d+\.\d+)',  # 標準格式 /@lat,lng
-            r'/place/[^/]*/@(-?\d+\.\d+),(-?\d+\.\d+)',  # place格式
-            r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)',  # 編碼格式
-            r'center=(-?\d+\.\d+),(-?\d+\.\d+)',  # center參數
-            r'll=(-?\d+\.\d+),(-?\d+\.\d+)',  # ll參數
-            r'q=(-?\d+\.\d+),(-?\d+\.\d+)',  # q參數座標
-        ]
-        
+        # 先嘗試提取 place 真實座標 (!3d lat !4d lng)，再退回視窗中心 /@lat,lng
         lat, lng = None, None
-        for pattern in coordinate_patterns:
-            coord_match = re.search(pattern, url)
-            if coord_match:
-                try:
-                    lat = float(coord_match.group(1))
-                    lng = float(coord_match.group(2))
-                    
-                    # 驗證座標是否在台灣範圍內
-                    if 21.0 <= lat <= 26.0 and 119.0 <= lng <= 122.5:
-                        logger.info(f"提取座標成功: ({lat}, {lng})")
-                        break
-                    else:
-                        logger.warning(f"座標超出台灣範圍: ({lat}, {lng})")
-                        lat, lng = None, None
-                except ValueError:
-                    continue
+        best = None
+        place_pair = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', url)
+        if place_pair:
+            try:
+                plat = float(place_pair.group(1))
+                plng = float(place_pair.group(2))
+                if 21.0 <= plat <= 26.0 and 119.0 <= plng <= 122.5:
+                    best = (plat, plng, 'place')
+            except ValueError:
+                pass
+        at_pair = None
+        # 支援 /@lat,lng 或 /place/.../@lat,lng
+        for pat in [r'/@(-?\d+\.\d+),(-?\d+\.\d+)', r'/place/[^/]*/@(-?\d+\.\d+),(-?\d+\.\d+)']:
+            m = re.search(pat, url)
+            if m:
+                at_pair = m
+                break
+        if at_pair and best is None:
+            try:
+                alat = float(at_pair.group(1))
+                alng = float(at_pair.group(2))
+                if 21.0 <= alat <= 26.0 and 119.0 <= alng <= 122.5:
+                    best = (alat, alng, '@')
+            except ValueError:
+                pass
+        # 其他參數作為最後備援
+        if best is None:
+            for pattern in [r'center=(-?\d+\.\d+),(-?\d+\.\d+)', r'll=(-?\d+\.\d+),(-?\d+\.\d+)', r'q=(-?\d+\.\d+),(-?\d+\.\d+)']:
+                coord_match = re.search(pattern, url)
+                if coord_match:
+                    try:
+                        clat = float(coord_match.group(1))
+                        clng = float(coord_match.group(2))
+                        if 21.0 <= clat <= 26.0 and 119.0 <= clng <= 122.5:
+                            best = (clat, clng, 'param')
+                            break
+                    except ValueError:
+                        continue
+        if best:
+            lat, lng, source = best
+            logger.info(f"提取座標成功: ({lat}, {lng}) 來源: {source}")
         
         # 提取地點名稱 - 多種模式
         place_name = None
@@ -1275,8 +1300,28 @@ def calculate_walking_distance_from_google_maps(user_address: str, restaurant_ad
     - 從頁面文字解析距離(公里/公尺)與時間(小時/分)
     回傳 (距離公里, 分鐘, URL)；若解析不到，距離與時間皆為 None，但仍回傳 URL。
     """
-    base_url = "https://www.google.com/maps/dir"
-    route_url = f"{base_url}/{urllib.parse.quote(user_address)}/{urllib.parse.quote(restaurant_address)}?dirflg=w&hl=zh-TW"
+    # 使用 API 形式的 directions URL，對座標/名稱都友善
+    def build_route_url(origin_text: str, dest_text: str) -> str:
+        origin = origin_text.strip()
+        # 若 origin 是 "lat,lng" 格式，直接放入，不要 URL encode 逗號
+        if re.match(r"^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$", origin):
+            origin_param = origin.replace(' ', '')
+        else:
+            origin_param = urllib.parse.quote(origin)
+        # 目的地若也是座標，亦直接帶入
+        dest_clean = dest_text.strip()
+        if re.match(r"^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$", dest_clean):
+            dest_param = dest_clean.replace(' ', '')
+        else:
+            dest_param = urllib.parse.quote(dest_clean)
+        return (
+            "https://www.google.com/maps/dir/?api=1"
+            f"&origin={origin_param}"
+            f"&destination={dest_param}"
+            "&travelmode=walking&hl=zh-TW"
+        )
+
+    route_url = build_route_url(str(user_address), str(restaurant_address))
     driver = None
     try:
         # 使用標準驅動，確保 JavaScript 啟用
@@ -1485,9 +1530,10 @@ def search_restaurants_parallel(keyword: str, location_info: Optional[Dict] = No
     logger.info(f"🚀 開始並行搜尋餐廳: {keyword}")
     start_time = time.time()
     
-    # 構建搜尋查詢
-    if location_info and location_info.get('address'):
-        search_query = f"{location_info['address']} {keyword} 餐廳"
+    # 構建搜尋查詢（搜尋時優先使用 display_address/地標名稱，避免以座標字串導致搜尋上下文偏差）
+    if location_info and (location_info.get('display_address') or location_info.get('address')):
+        display_anchor = location_info.get('display_address') or location_info.get('address')
+        search_query = f"{display_anchor} {keyword} 餐廳"
     else:
         search_query = f"{keyword} 餐廳 台灣"
 
@@ -1528,8 +1574,9 @@ def search_google_maps_restaurants(keyword: str, location_info: Optional[Dict] =
     try:
         with browser_pool.get_browser() as driver:
             # 建立查詢
-            if location_info and location_info.get('address'):
-                query = f"{location_info['address']} {keyword} 餐廳"
+            if location_info and (location_info.get('display_address') or location_info.get('address')):
+                display_anchor = location_info.get('display_address') or location_info.get('address')
+                query = f"{display_anchor} {keyword} 餐廳"
             else:
                 query = f"{keyword} 餐廳 台灣"
             encoded_query = quote(query)
@@ -1999,11 +2046,28 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         
         # 計算距離（優先嘗試 Google Maps 步行，不再硬性依賴地理編碼）
         if location_info and restaurant_info.get('address'):
+            # 以 'address' 作為 routing 的 origin（可能是座標字串）；若要顯示給使用者，可用 display_address
             user_address = location_info.get('address') or ''
             restaurant_address = restaurant_info['address']
+
+            # 若餐廳地址不完整，為了路徑規劃精準，嘗試一次地理編碼以取得座標字串
+            dest_for_routing = restaurant_address
+            incomplete = False
+            try:
+                incomplete = (not any(city in restaurant_address for city in ['市', '縣'])) or (not any(k in restaurant_address for k in ['號', '巷', '街', '路']))
+            except Exception:
+                incomplete = False
+            if incomplete:
+                try:
+                    coords = geocode_address(restaurant_address, location_info.get('display_address') or user_address)
+                    if coords:
+                        dest_for_routing = f"{coords[0]},{coords[1]}"
+                except Exception:
+                    pass
+
             distance = None
             try:
-                walking_distance, walking_minutes, google_maps_url = calculate_walking_distance_from_google_maps(user_address, restaurant_address)
+                walking_distance, walking_minutes, google_maps_url = calculate_walking_distance_from_google_maps(user_address, dest_for_routing)
                 if google_maps_url:
                     restaurant_info['google_maps_url'] = google_maps_url
                 if walking_distance is not None:
@@ -2086,9 +2150,10 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         # 建立瀏覽器
         driver = create_chrome_driver(headless=True)
         
-        # 構建搜尋查詢
-        if location_info and location_info.get('address'):
-            search_query = f"{location_info['address']} {keyword} 餐廳"
+        # 構建搜尋查詢（搜尋顯示用 display_address 優先）
+        if location_info and (location_info.get('display_address') or location_info.get('address')):
+            display_anchor = location_info.get('display_address') or location_info.get('address')
+            search_query = f"{display_anchor} {keyword} 餐廳"
         else:
             search_query = f"{keyword} 餐廳 台灣"
         
@@ -2269,9 +2334,13 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
             location_data = extract_location_from_url(user_address)
             if location_data:
                 lat, lng, place_name = location_data
+                # 地址同時保留座標字串，供路徑規劃避免誤判
+                coord_str = f"{lat},{lng}"
                 location_info = {
                     'coords': (lat, lng),
-                    'address': place_name or user_address
+                    'coordinates': (lat, lng),
+                    'address': coord_str,  # 用座標做為 origin，避免名稱偏移
+                    'display_address': place_name or coord_str
                 }
                 logger.info(f"從 URL 提取位置: {place_name} ({lat}, {lng})")
         else:
@@ -2282,7 +2351,8 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
                 location_info = {
                     'coords': coords,
                     'coordinates': coords,  # 同時設定兩個鍵以確保兼容性
-                    'address': user_address
+                    'address': user_address,
+                    'display_address': user_address
                 }
                 logger.info(f"地址座標: {coords}")
             else:
@@ -2290,7 +2360,8 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
                 location_info = {
                     'coords': None,
                     'coordinates': None,  # 同時設定兩個鍵以確保兼容性
-                    'address': user_address
+                    'address': user_address,
+                    'display_address': user_address
                 }
                 logger.warning(f"無法獲得地址座標，僅用於搜尋: {user_address}")
     
