@@ -10,8 +10,20 @@ from dotenv import load_dotenv
 # 載入環境變數
 load_dotenv()
 
-# 初始化 OpenAI API 金鑰
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# 檢查 OpenAI 版本並進行兼容性處理
+try:
+    # 嘗試新版本導入
+    from openai import OpenAI
+    # 新版本 (1.0+)
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    OPENAI_VERSION = "new"
+except ImportError:
+    # 舊版本 (0.x)
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    client = None
+    OPENAI_VERSION = "old"
+
+print(f"OpenAI version detected: {OPENAI_VERSION} (openai {openai.__version__})")
 
 # 食物類型模式字典（備用關鍵字檢測）
 FOOD_PATTERNS = {
@@ -104,16 +116,29 @@ def analyze_user_request(user_input):
 
 請只回傳 JSON，不要有其他說明文字。"""
 
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input}
-            ],
-            temperature=0.1
-        )
-        
-        result_text = response['choices'][0]['message']['content'].strip()
+        # 版本兼容的 API 調用
+        if OPENAI_VERSION == "new":
+            # 新版本 (1.0+) 格式
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.1
+            )
+            result_text = response.choices[0].message.content.strip()
+        else:
+            # 舊版本 (0.x) 格式  
+            response = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.1
+            )
+            result_text = response['choices'][0]['message']['content'].strip()
         
         # 嘗試解析 JSON
         try:
