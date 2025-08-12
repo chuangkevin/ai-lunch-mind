@@ -1269,70 +1269,120 @@ def search_duckduckgo(keyword: str, location: str = "台灣") -> List[Dict[str, 
         return []
 
 def calculate_walking_distance_from_google_maps(user_address: str, restaurant_address: str) -> Tuple[float, int, str]:
-    """載入 Google Maps 強制步行模式並解析距離/時間。
-    回傳 (距離公里, 分鐘, URL)。失敗 -> (None, None, url 或 None)
-    策略:
-      1. 使用 dirflg=w 強制步行
-      2. 解析頁面所有『X公里 / X公尺』候選，取最小(通常為主要路線)
-      3. 解析『小時 / 分』組合
-      4. 若時間缺失，以 4.5km/h 估算
+    """用 Google Maps 路徑規劃(步行) 的實際數值，不做任何自家估算。
+    - 強制使用 dirflg=w
+    - 使用啟用 JavaScript 的標準驅動載入頁面
+    - 從頁面文字解析距離(公里/公尺)與時間(小時/分)
+    回傳 (距離公里, 分鐘, URL)；若解析不到，距離與時間皆為 None，但仍回傳 URL。
     """
+    base_url = "https://www.google.com/maps/dir"
+    route_url = f"{base_url}/{urllib.parse.quote(user_address)}/{urllib.parse.quote(restaurant_address)}?dirflg=w&hl=zh-TW"
+    driver = None
     try:
-        with browser_pool.get_browser() as driver:
-            base_url = "https://www.google.com/maps/dir"
-            encoded_user = urllib.parse.quote(user_address)
-            encoded_restaurant = urllib.parse.quote(restaurant_address)
-            route_url = f"{base_url}/{encoded_user}/{encoded_restaurant}?dirflg=w&hl=zh-TW"
-            driver.get(route_url)
-            WebDriverWait(driver, 15).until(lambda d: d.execute_script("return document.readyState") == "complete")
-            time.sleep(2)
+        # 使用標準驅動，確保 JavaScript 啟用
+        driver = create_chrome_driver(headless=True)
+        driver.get(route_url)
+        # 等待頁面就緒與主要內容渲染
+        WebDriverWait(driver, 25).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        time.sleep(1.5)
 
-            page_text = ''
-            try:
-                page_text = driver.find_element(By.TAG_NAME, 'body').text
-            except Exception:
+        # 嘗試點擊步行分頁(保險) — 若找不到就忽略
+        try:
+            walk_tab_selectors = [
+                "button[aria-label*='步行']",
+                "div[role='tab'][aria-label*='步行']",
+                "button[jsaction][aria-controls*='section-directions']"
+            ]
+            for sel in walk_tab_selectors:
                 try:
-                    page_text = driver.page_source
+                    el = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
+                    if el and el.is_displayed():
+                        el.click()
+                        time.sleep(0.8)
+                        break
                 except Exception:
-                    page_text = ''
+                    continue
+        except Exception:
+            pass
 
-            # 距離候選 (公里 / 公尺)
-            km_vals = [float(m) for m in re.findall(r'(\d+(?:\.\d+)?)\s*公里', page_text)]
-            m_vals = [int(m) for m in re.findall(r'(\d+)\s*(?:公尺|m)\b', page_text)]
-            distance_km = None
+        # 擷取頁面文字
+        try:
+            page_text = driver.find_element(By.TAG_NAME, 'body').text
+        except Exception:
+            page_text = driver.page_source or ""
+
+        # 先嘗試在『同一行』內同時抓到「分鐘 + 距離」的組合，避免抓到步驟中的小段公尺
+        candidates: list[tuple[int, float]] = []  # (minutes, distance_km)
+        for line in page_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # 標準: 4 分 1.6 公里
+            m_km = re.search(r"(\d+)\s*分[^\n]*?(\d+(?:\.\d+)?)\s*公里", line)
+            if m_km:
+                minutes = int(m_km.group(1))
+                dist_km = float(m_km.group(2))
+                candidates.append((minutes, dist_km))
+                continue
+            # 公尺版本: 8 分 700 公尺
+            m_m = re.search(r"(\d+)\s*分[^\n]*?(\d+)\s*(?:公尺|m)\b", line)
+            if m_m:
+                minutes = int(m_m.group(1))
+                dist_km = int(m_m.group(2)) / 1000.0
+                candidates.append((minutes, dist_km))
+
+        distance_km = None
+        walking_minutes: Optional[int] = None
+        if candidates:
+            # 以距離最短為主，若相同則以分鐘最短
+            candidates.sort(key=lambda x: (x[1], x[0]))
+            walking_minutes, distance_km = candidates[0][0], candidates[0][1]
+        else:
+            # 後備：全頁掃距離，但為避免步驟小段，優先取公里值，且取『最接近第一個分鐘值附近的距離』
+            # 先找一個分鐘數
+            m_only = re.search(r"(\d+)\s*分", page_text)
+            km_vals = [float(m) for m in re.findall(r"(\d+(?:\.\d+)?)\s*公里", page_text)]
             if km_vals:
-                # 取最小值 (第一條路線通常最短) 避免把其他模式或備選路線的較長距離抓進來
                 distance_km = min(km_vals)
-            elif m_vals:
-                distance_km = min(m_vals) / 1000.0
+            else:
+                m_vals = [int(m) for m in re.findall(r"(\d+)\s*(?:公尺|m)\b", page_text)]
+                if m_vals:
+                    # 避免極小值造成誤判，挑選分位數較高者(例如第 75 百分位)；若元素少於4個則取最大
+                    m_vals_sorted = sorted(m_vals)
+                    if len(m_vals_sorted) >= 4:
+                        idx = int(len(m_vals_sorted) * 0.75)
+                        idx = min(idx, len(m_vals_sorted) - 1)
+                        distance_km = m_vals_sorted[idx] / 1000.0
+                    else:
+                        distance_km = max(m_vals_sorted) / 1000.0
+            # 分鐘(寬鬆)
+            if m_only:
+                walking_minutes = int(m_only.group(1))
 
-            # 時間解析
-            walking_minutes = None
-            # 完整 小時 + 分
-            hm = re.search(r'(\d+)\s*小時.*?(\d+)\s*分', page_text)
+        # 也支援小時格式
+        if walking_minutes is None:
+            hm = re.search(r"(\d+)\s*小時.*?(\d+)\s*分", page_text)
             if hm:
                 walking_minutes = int(hm.group(1)) * 60 + int(hm.group(2))
             else:
-                h_only = re.search(r'(\d+)\s*小時', page_text)
-                m_only = re.search(r'(\d+)\s*分', page_text)
-                if h_only and m_only:
-                    walking_minutes = int(h_only.group(1)) * 60 + int(m_only.group(1))
-                elif m_only:
-                    walking_minutes = int(m_only.group(1))
+                h_only = re.search(r"(\d+)\s*小時", page_text)
+                m_only2 = re.search(r"(\d+)\s*分", page_text)
+                if h_only and m_only2:
+                    walking_minutes = int(h_only.group(1)) * 60 + int(m_only2.group(1))
+                elif m_only2:
+                    walking_minutes = int(m_only2.group(1))
 
-            # 若只有距離沒有時間 -> 估算；或時間明顯過小(防止抓到錯誤元素)
-            if distance_km is not None and (walking_minutes is None or walking_minutes < distance_km * 5):
-                walking_minutes = int((distance_km / 4.5) * 60)
-
-            logger.debug(f"步行距離解析 -> distance_km={distance_km}, walking_minutes={walking_minutes}, url={route_url}")
-            return (round(distance_km, 3) if distance_km is not None else None, walking_minutes, route_url)
+        # 不再自行估算時間或距離；若抓不到，就回傳 None
+        return (round(distance_km, 3) if distance_km is not None else None, walking_minutes, route_url)
     except Exception as e:
         logger.error(f"步行距離獲取失敗: {e}")
+        return None, None, route_url
+    finally:
         try:
-            base_url = "https://www.google.com/maps/dir/"
-            return None, None, f"{base_url}{urllib.parse.quote(user_address)}/{urllib.parse.quote(restaurant_address)}?dirflg=w"
+            if driver:
+                driver.quit()
         except Exception:
-            return None, None, None
+            pass
 
 def calculate_distance(user_coords: Tuple[float, float], restaurant_coords: Tuple[float, float]) -> float:
     """
@@ -1963,7 +2013,7 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
             except Exception as e:
                 logger.debug(f"步行距離取得失敗: {e}")
 
-            # 若仍無距離且有座標則用 GPS 直線距離
+            # 若仍無距離且有座標則用 GPS 直線距離（最後備援，可關閉）。預設仍以 None 呈現。
             if distance is None:
                 user_coords = location_info.get('coords') or location_info.get('coordinates')
                 if user_coords:
@@ -1971,17 +2021,12 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                     try:
                         restaurant_coords = geocode_address(restaurant_address, user_address)
                         if restaurant_coords:
-                            distance = calculate_distance(user_coords, restaurant_coords)
-                            logger.info(f"📍 GPS 直線距離: {distance}km - {restaurant_info.get('name','未知')}")
+                            # 若需要顯示直線距離，解除下一行註解；目前保持 None 以完全遵循「只用路徑距離」
+                            # distance = calculate_distance(user_coords, restaurant_coords)
+                            logger.info("📍 已取得座標，但依照設定不顯示直線距離。")
                     except Exception as ge:
                         logger.debug(f"GPS 距離計算失敗: {ge}")
-                # 若還是沒有距離，最後用地址估算 (極端 fallback)
-                if distance is None and user_address:
-                    try:
-                        distance = estimate_distance_by_address(user_address, restaurant_address)
-                        logger.info(f"🔄 地址估算距離: {distance}km - {restaurant_info.get('name','未知')}")
-                    except Exception:
-                        pass
+                # 嚴格遵循需求：不再進行任何地址估算
 
             if distance is not None:
                 if distance == 0:
