@@ -1,6 +1,7 @@
 # modules/ai_recommendation_engine.py
 from datetime import datetime
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from typing import List, Dict, Any
 from modules.sweat_index import query_sweat_index_by_location
@@ -20,17 +21,24 @@ class SmartRecommendationEngine:
             print(f"📍 位置：{location}")
             print(f"💬 用戶輸入：{user_input}")
             
-            # 0. AI驗證：位置提取正確性
-            location_validation = validate_location(user_input, location)
+            # 並行執行初始化任務
+            print(f"⚡ 並行處理位置驗證、天氣資料和對話分析...")
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                # 提交三個並行任務
+                future_location = executor.submit(validate_location, user_input, location)
+                future_weather = executor.submit(query_sweat_index_by_location, location)
+                future_dialog = executor.submit(analyze_user_request, user_input) if user_input.strip() else None
+                
+                # 等待結果
+                location_validation = future_location.result()
+                sweat_data = future_weather.result()
+                dialog_analysis = future_dialog.result() if future_dialog else None
+            
             print(f"🔍 位置驗證結果：valid={location_validation['is_valid']}, confidence={location_validation['confidence']:.2f}")
             
             if not location_validation['is_valid'] and location_validation['confidence'] < 0.3:
                 print(f"⚠️ 位置驗證警告：{location_validation.get('issues', [])}")
                 # 不阻斷流程，但記錄問題
-            
-            # 1. 獲取天氣資料
-            print(f"🌡️ 正在獲取天氣資料...")
-            sweat_data = query_sweat_index_by_location(location)
             # 使用較合理的預設值（避免過度縮小搜尋半徑）
             sweat_index = sweat_data.get('sweat_index', 5.0)
             temperature = sweat_data.get('temperature', 25)
