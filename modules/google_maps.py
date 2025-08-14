@@ -2026,11 +2026,16 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
         try:
             full_text = element.text
             price_patterns = [
+                r'\$(\d{1,3}(?:,\d{3})*)-(\d{1,3}(?:,\d{3})*)',  # $800-1,000 格式（支援逗號分隔）
                 r'\$(\d{1,4})-(\d{1,4})',  # $1-200 格式（擴展為支援1-4位數）
                 r'\$(\d{2,4})-(\d{2,4})',  # $100-300 格式
+                r'NT\$(\d{1,3}(?:,\d{3})*)-(\d{1,3}(?:,\d{3})*)',  # NT$800-1,000 格式
                 r'NT\$(\d{1,4})-(\d{1,4})',  # NT$1-200 格式
+                r'(\d{1,3}(?:,\d{3})*)-(\d{1,3}(?:,\d{3})*)元',  # 800-1,000元 格式
                 r'(\d{1,4})-(\d{1,4})元',  # 1-200元 格式
+                r'\$(\d{1,3}(?:,\d{3})*)\+',  # $1,000+ 格式
                 r'\$(\d{1,4})\+',  # $1+ 格式
+                r'(\d{1,3}(?:,\d{3})*)元',  # 1,000元 格式
                 r'(\d{1,4})元',  # 1元 格式
             ]
             
@@ -2040,22 +2045,25 @@ def extract_restaurant_info_minimal(element, location_info: Optional[Dict] = Non
                     groups = price_match.groups()
                     if len(groups) == 2:  # 價格區間
                         try:
-                            low_price = int(groups[0])
-                            high_price = int(groups[1])
+                            # 移除逗號後轉換為整數
+                            low_price = int(groups[0].replace(',', ''))
+                            high_price = int(groups[1].replace(',', ''))
                             # 放寬價格範圍，支援 $1-200 這種格式
-                            if 1 <= low_price <= 5000 and 1 <= high_price <= 5000 and low_price < high_price:
-                                restaurant_info['price_level'] = f"${low_price}-{high_price}"
+                            if 1 <= low_price <= 10000 and 1 <= high_price <= 10000 and low_price < high_price:
+                                # 保持原始格式的逗號分隔
+                                restaurant_info['price_level'] = f"${groups[0]}-{groups[1]}"
                                 break
                         except ValueError:
                             continue
                     elif len(groups) == 1:  # 單一價格
                         try:
-                            price = int(groups[0])
-                            if 1 <= price <= 5000:
+                            # 移除逗號後轉換為整數
+                            price = int(groups[0].replace(',', ''))
+                            if 1 <= price <= 10000:
                                 if '+' in price_match.group(0):
-                                    restaurant_info['price_level'] = f"${price}+"
+                                    restaurant_info['price_level'] = f"${groups[0]}+"
                                 else:
-                                    restaurant_info['price_level'] = f"${price}"
+                                    restaurant_info['price_level'] = f"${groups[0]}"
                                 break
                         except ValueError:
                             continue
