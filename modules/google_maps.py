@@ -2243,8 +2243,14 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
     try:
         logger.info(f"開始搜尋餐廳: {keyword}")
         
-        # 建立瀏覽器
-        driver = create_chrome_driver(headless=True)
+        # 使用瀏覽器池獲取瀏覽器實例
+        try:
+            from modules.browser_pool import get_browser, release_browser
+            driver = get_browser()
+            logger.info("使用瀏覽器池獲取瀏覽器實例")
+        except Exception as e:
+            logger.warning(f"瀏覽器池不可用，使用傳統方式: {e}")
+            driver = create_chrome_driver(headless=True)
         
         # 構建搜尋查詢（搜尋顯示用 display_address 優先）
         if location_info and (location_info.get('display_address') or location_info.get('address')):
@@ -2323,7 +2329,18 @@ def search_restaurants_selenium(keyword: str, location_info: Optional[Dict] = No
         
     finally:
         if driver:
-            driver.quit()
+            try:
+                # 如果使用瀏覽器池，歸還瀏覽器；否則直接關閉
+                from modules.browser_pool import release_browser
+                release_browser(driver)
+                logger.info("瀏覽器已歸還到瀏覽器池")
+            except Exception as e:
+                # 如果瀏覽器池歸還失敗，直接關閉瀏覽器
+                logger.warning(f"瀏覽器池歸還失敗，直接關閉: {e}")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
 
 def find_search_results(driver) -> List:
     """
@@ -2420,6 +2437,16 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
     :param max_results: 最大結果數
     :return: 餐廳資訊列表
     """
+    # 檢查快取
+    try:
+        from modules.cache_manager import get_restaurant_cache, set_restaurant_cache
+        cache_location = user_address or "unknown"
+        cached_results = get_restaurant_cache(keyword, cache_location, max_results)
+        if cached_results:
+            return cached_results
+    except Exception as e:
+        logger.warning(f"快取系統不可用: {e}")
+    
     location_info = None
     
     # 處理使用者位置資訊
@@ -2497,6 +2524,13 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
             reliable_url = get_reliable_maps_url(restaurant)
             restaurant['maps_url'] = reliable_url
             logger.debug(f"為 {restaurant['name']} 優化URL: {reliable_url[:50]}...")
+    
+    # 將結果存入快取
+    try:
+        cache_location = user_address or "unknown"
+        set_restaurant_cache(keyword, cache_location, max_results, results)
+    except Exception as e:
+        logger.warning(f"快取保存失敗: {e}")
     
     return results
 

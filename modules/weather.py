@@ -111,6 +111,16 @@ def get_weather_data(latitude_or_input, longitude=None):
     :param longitude: float, 經度 (當第一個參數是緯度時使用)
     :return: dict, 包含氣溫、濕度、降雨機率的天氣資料
     """
+    # 檢查快取
+    try:
+        from modules.cache_manager import get_weather_cache, set_weather_cache
+        cache_location = str(latitude_or_input) if longitude is None else f"{latitude_or_input},{longitude}"
+        cached_weather = get_weather_cache(cache_location)
+        if cached_weather:
+            return cached_weather
+    except Exception as e:
+        print(f"天氣快取系統不可用: {e}")
+    
     api_key = os.getenv("CWB_API_KEY")
     if not api_key:
         raise ValueError("中央氣象署 API 金鑰未設置")
@@ -149,6 +159,13 @@ def get_weather_data(latitude_or_input, longitude=None):
             "rain_probability": rain_probability,
             "location_info": location_info  # 添加位置資訊
         }
+        
+        # 將天氣資料存入快取
+        try:
+            cache_location = str(latitude_or_input) if longitude is None else f"{latitude_or_input},{longitude}"
+            set_weather_cache(cache_location, weather_data)
+        except Exception as e:
+            print(f"天氣快取保存失敗: {e}")
         
         return weather_data
         

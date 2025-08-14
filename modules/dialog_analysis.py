@@ -49,6 +49,15 @@ def analyze_user_request(user_input):
     :param user_input: str, 使用者的輸入文字
     :return: dict, 結構化的需求分析結果
     """
+    # 檢查AI分析快取
+    try:
+        from modules.cache_manager import get_ai_cache, set_ai_cache
+        cached_analysis = get_ai_cache(user_input, "dialog_analysis")
+        if cached_analysis:
+            return cached_analysis
+    except Exception as e:
+        print(f"AI分析快取系統不可用: {e}")
+    
     try:
         system_prompt = """你是一個專業的餐廳推薦需求分析助手。請仔細分析使用者的輸入，特別注意以下重點：
 
@@ -143,11 +152,19 @@ def analyze_user_request(user_input):
         # 嘗試解析 JSON
         try:
             parsed_result = json.loads(result_text)
-            return {
+            analysis_result = {
                 "success": True,
                 "analysis": parsed_result,
                 "raw_response": result_text
             }
+            
+            # 將結果存入快取
+            try:
+                set_ai_cache(user_input, analysis_result, "dialog_analysis")
+            except Exception as e:
+                print(f"AI分析快取保存失敗: {e}")
+            
+            return analysis_result
         except json.JSONDecodeError:
             # 如果 JSON 解析失敗，回傳基本分析
             return {
