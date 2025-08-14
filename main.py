@@ -289,7 +289,7 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
         
         print(f"[AI推薦] 位置: {location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
         
-        # 調用 AI 推薦引擎
+        # 調用 AI 推薦引擎（已整合驗證功能）
         recommendation_result = ai_engine.generate_recommendation(
             location=location,
             user_input=user_input,
@@ -302,6 +302,22 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
                 status_code=500, 
                 detail=recommendation_result.get('message', '推薦生成失敗')
             )
+        
+        # 提取驗證結果用於記錄
+        validation_results = recommendation_result.get('validation_results', {})
+        
+        # 記錄驗證警告（不影響使用者回應）
+        location_val = validation_results.get('location_validation', {})
+        if not location_val.get('is_valid', True):
+            print(f"⚠️ API警告 - 位置驗證問題：{location_val.get('issues', [])}")
+        
+        plan_val = validation_results.get('plan_validation', {})
+        if not plan_val.get('is_relevant', True):
+            print(f"⚠️ API警告 - 計畫相關性問題：{plan_val.get('missing_aspects', [])}")
+        
+        rec_val = validation_results.get('recommendation_validation', {})
+        if not rec_val.get('is_satisfactory', True):
+            print(f"⚠️ API警告 - 推薦品質問題：{rec_val.get('issues', [])}")
         
         return recommendation_result
         
@@ -433,8 +449,8 @@ def health_check():
             "version": "3.0.0",
             "cwb_api_key": api_key_status,
             "endpoints": [
-                "/ai-lunch-recommendation?location=地點&user_input=需求 - 🤖 AI智能推薦",
-                "/chat-recommendation?message=完整訊息 - 💬 對話式推薦",
+                "/ai-lunch-recommendation?location=地點&user_input=需求 - AI智能推薦",
+                "/chat-recommendation?message=完整訊息 - 對話式推薦",
                 "/sweat-index?location=地點名稱",
                 "/sweat-alerts?temperature=溫度&humidity=濕度",
                 "/weather_enhanced?location=地點名稱",
@@ -444,7 +460,7 @@ def health_check():
             ],
             "pages": [
                 "/ - 主頁面",
-                "/ai_lunch - 🤖 AI智能午餐推薦頁面",
+                "/ai_lunch - AI智能午餐推薦頁面",
                 "/sweat_index - 流汗指數查詢頁面",
                 "/restaurant - 餐廳搜尋頁面", 
                 "/weather_page - 天氣查詢頁面"
@@ -457,17 +473,17 @@ def health_check():
 if __name__ == "__main__":
     # 檢查環境變數
     if not os.getenv("CWB_API_KEY"):
-        print("⚠️  警告：CWB_API_KEY 環境變數未設置，無法獲取真實天氣資料")
+        print("警告：CWB_API_KEY 環境變數未設置，無法獲取真實天氣資料")
         print("請先設置中央氣象署 API 金鑰")
         print()
     
-    print("🌡️ AI 午餐推薦系統（整合流汗指數）啟動中...")
-    print("📍 可用頁面：")
+    print("AI 午餐推薦系統（整合流汗指數）啟動中...")
+    print("可用頁面：")
     print("   • http://localhost:5000/ - 主頁面")
     print("   • http://localhost:5000/sweat_index - 流汗指數查詢介面") 
     print("   • http://localhost:5000/restaurant - 餐廳搜尋介面")
     print("   • http://localhost:5000/weather_page - 天氣查詢介面")
-    print("📍 可用 API：")
+    print("可用 API：")
     print("   • http://localhost:5000/sweat-index?location=台北101 - 流汗指數查詢")
     print("   • http://localhost:5000/weather_enhanced?location=花蓮市 - 增強版天氣查詢")
     print("   • http://localhost:5000/health - 健康檢查")
