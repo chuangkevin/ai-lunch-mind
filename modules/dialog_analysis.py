@@ -51,7 +51,7 @@ def analyze_user_request(user_input):
     """
     # 檢查AI分析快取
     try:
-        from modules.cache_manager import get_ai_cache, set_ai_cache
+        from modules.sqlite_cache_manager import get_ai_cache, set_ai_cache
         cached_analysis = get_ai_cache(user_input, "dialog_analysis")
         if cached_analysis:
             return cached_analysis

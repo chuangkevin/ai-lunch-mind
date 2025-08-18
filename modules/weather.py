@@ -113,7 +113,7 @@ def get_weather_data(latitude_or_input, longitude=None):
     """
     # 檢查快取
     try:
-        from modules.cache_manager import get_weather_cache, set_weather_cache
+        from modules.sqlite_cache_manager import get_weather_cache, set_weather_cache
         cache_location = str(latitude_or_input) if longitude is None else f"{latitude_or_input},{longitude}"
         cached_weather = get_weather_cache(cache_location)
         if cached_weather:

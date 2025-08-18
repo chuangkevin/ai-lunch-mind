@@ -1,7 +1,6 @@
 # modules/ai_recommendation_engine.py
 from datetime import datetime
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from typing import List, Dict, Any
 from modules.sweat_index import query_sweat_index_by_location
@@ -12,7 +11,6 @@ from modules.dialog_analysis import (
     detect_food_keywords_fallback,
     get_weather_based_keywords
 )
-from modules.ai_validator import validate_location, validate_search_plan, validate_recommendations
 
 class SmartRecommendationEngine:
     def generate_recommendation(self, location, user_input="", max_results=10):
@@ -21,24 +19,9 @@ class SmartRecommendationEngine:
             print(f"📍 位置：{location}")
             print(f"💬 用戶輸入：{user_input}")
             
-            # 並行執行初始化任務
-            print(f"⚡ 並行處理位置驗證、天氣資料和對話分析...")
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                # 提交三個並行任務
-                future_location = executor.submit(validate_location, user_input, location)
-                future_weather = executor.submit(query_sweat_index_by_location, location)
-                future_dialog = executor.submit(analyze_user_request, user_input) if user_input.strip() else None
-                
-                # 等待結果
-                location_validation = future_location.result()
-                sweat_data = future_weather.result()
-                dialog_analysis = future_dialog.result() if future_dialog else None
-            
-            print(f"🔍 位置驗證結果：valid={location_validation['is_valid']}, confidence={location_validation['confidence']:.2f}")
-            
-            if not location_validation['is_valid'] and location_validation['confidence'] < 0.3:
-                print(f"⚠️ 位置驗證警告：{location_validation.get('issues', [])}")
-                # 不阻斷流程，但記錄問題
+            # 1. 獲取天氣資料
+            print(f"🌡️ 正在獲取天氣資料...")
+            sweat_data = query_sweat_index_by_location(location)
             # 使用較合理的預設值（避免過度縮小搜尋半徑）
             sweat_index = sweat_data.get('sweat_index', 5.0)
             temperature = sweat_data.get('temperature', 25)
@@ -61,37 +44,9 @@ class SmartRecommendationEngine:
                 # 關鍵字為空時的保底
                 search_keywords = ["熱炒", "便當", "麵食"]
             
-            # 3. 生成搜尋計劃
+            # 3. 先回傳搜尋計劃給用戶
             search_plan = self._generate_search_plan(location, sweat_data, search_keywords, user_input, max_distance_km)
             print(f"📋 搜尋計劃：\n{search_plan}")
-            
-            # 3.5. AI驗證：搜尋計畫相關性
-            plan_data = {
-                "search_keywords": search_keywords,
-                "location": location,
-                "weather_info": sweat_data,
-                "max_distance_km": max_distance_km
-            }
-            plan_validation = validate_search_plan(user_input, plan_data)
-            print(f"搜尋計畫驗證：relevant={plan_validation['is_relevant']}, score={plan_validation['relevance_score']:.2f}")
-            
-            if not plan_validation['is_relevant']:
-                print(f"搜尋計畫可能需要調整：{plan_validation.get('missing_aspects', [])}")
-                # 記錄建議但不阻斷流程
-                
-            # 檢查具體性問題
-            specificity_issue = plan_validation.get('specificity_issue', '')
-            if specificity_issue and specificity_issue.strip():
-                print(f"具體性問題：{specificity_issue}")
-                suggested_keywords = plan_validation.get('suggested_keywords', [])
-                if suggested_keywords:
-                    print(f"建議關鍵字：{', '.join(suggested_keywords)}")
-                    # 可選：動態調整搜尋關鍵字
-                    if plan_validation.get('intent_score', 0.0) < 0.6:
-                        print(f"意圖匹配分數過低 ({plan_validation.get('intent_score', 0.0):.2f})，考慮使用建議關鍵字")
-                        # 替換或補充關鍵字
-                        search_keywords = suggested_keywords[:3] if len(suggested_keywords) >= 3 else suggested_keywords + search_keywords
-                        print(f"調整後搜尋關鍵字：{', '.join(search_keywords)}")
             
             # 先返回搜尋計劃，讓前端立即顯示
             plan_response = {
@@ -204,18 +159,6 @@ class SmartRecommendationEngine:
             
             print(f"✅ 搜尋完成，找到 {len(all_restaurants)} 家餐廳，距離過濾後 {len(filtered_restaurants)} 家，去重後 {len(unique_restaurants)} 家，顯示前 {len(restaurants)} 家（依距離排序）")
             
-            # 5.5. AI驗證：餐廳推薦品質
-            recommendation_validation = validate_recommendations(user_input, search_keywords, restaurants)
-            print(f"🍽️ 推薦品質驗證：satisfactory={recommendation_validation['is_satisfactory']}, score={recommendation_validation['quality_score']:.2f}")
-            
-            if not recommendation_validation['is_satisfactory']:
-                quality_issues = recommendation_validation.get('issues', [])
-                quality_suggestions = recommendation_validation.get('suggestions', [])
-                if quality_issues:
-                    print(f"⚠️ 推薦品質問題：{quality_issues}")
-                if quality_suggestions:
-                    print(f"💡 改善建議：{quality_suggestions}")
-            
             # 6. 為找到的餐廳逐一輸出詳細資訊（依距離排序）
             if restaurants:
                 print(f"📋 推薦餐廳列表（依距離升冪排序）：")
@@ -259,11 +202,6 @@ class SmartRecommendationEngine:
                 "restaurants": restaurants,
                 "total_found": len(restaurants),
                 "recommendation_summary": recommendation_summary,
-                "validation_results": {
-                    "location_validation": location_validation,
-                    "plan_validation": plan_validation,
-                    "recommendation_validation": recommendation_validation
-                },
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
@@ -404,7 +342,7 @@ class SmartRecommendationEngine:
         current_hour = datetime.now().hour
         time_based_keywords = self._get_time_based_keywords(current_hour)
         
-        print(f"使用 ChatGPT 分析用戶需求...")
+        print(f"🧠 使用 ChatGPT 分析用戶需求...")
         
         # 使用 ChatGPT 進行深度分析
         try:
@@ -413,77 +351,25 @@ class SmartRecommendationEngine:
             if analysis_result.get("success"):
                 # ChatGPT 分析成功
                 analysis = analysis_result["analysis"]
-                print(f"ChatGPT 分析成功")
+                print(f"✅ ChatGPT 分析成功")
                 
-                # 優先檢查是否有特定食物關鍵字（如：東山鴨頭、鹽酥雞等）
+                # 1) 優先使用具體的食物關鍵字（例如：拉麵、牛肉麵）
                 food_prefs = analysis.get("food_preferences", {})
                 keywords = food_prefs.get("keywords", [])
-                
-                # 特殊處理：將食物名稱轉換為搜尋關鍵字（保持具體性）
-                special_food_mapping = {
-                    # 麵類 - 保持具體性，優先使用具體名稱
-                    "拉麵": ["拉麵", "日式拉麵", "豚骨拉麵"],
-                    "牛肉麵": ["牛肉麵", "紅燒牛肉麵", "清燉牛肉麵"],
-                    "義大利麵": ["義大利麵", "意麵", "pasta"],
-                    "烏龍麵": ["烏龍麵", "日式烏龍", "湯烏龍"],
-                    "泡麵": ["泡麵", "即食麵", "速食麵"],
-                    "米線": ["米線", "雲南米線", "過橋米線"],
-                    "河粉": ["河粉", "炒河粉", "湯河粉"],
-                    "陽春麵": ["陽春麵", "白麵", "清湯麵"],
-                    "擔仔麵": ["擔仔麵", "台南小吃", "麵食"],
-                    
-                    # 小吃類
-                    "東山鴨頭": ["鴨頭", "滷味", "小吃"],
-                    "鹽酥雞": ["鹽酥雞", "炸物", "小吃"],
-                    "雞排": ["雞排", "炸雞", "小吃"],
-                    "蚵仔煎": ["蚵仔煎", "夜市小吃", "台式料理"],
-                    "臭豆腐": ["臭豆腐", "小吃"],
-                    "滷肉飯": ["滷肉飯", "便當", "台式料理"],
-                    "雞肉飯": ["雞肉飯", "火雞肉飯", "嘉義小吃"],
-                    
-                    # 火鍋類
-                    "麻辣鍋": ["麻辣鍋", "麻辣火鍋", "四川火鍋"],
-                    "涮涮鍋": ["涮涮鍋", "清湯火鍋", "個人鍋"],
-                    "薑母鴨": ["薑母鴨", "食補", "冬令進補"],
-                    "羊肉爐": ["羊肉爐", "食補", "冬令進補"],
-                    
-                    # 其他具體食物
-                    "壽司": ["壽司", "日式料理", "生魚片"],
-                    "燒烤": ["燒烤", "烤肉", "BBQ"],
-                    "韓式料理": ["韓式料理", "韓國菜", "韓式燒烤"],
-                    "泰式料理": ["泰式料理", "泰國菜", "東南亞菜"],
-                    "印度料理": ["印度料理", "印度菜", "咖哩"]
-                }
-                
-                # 檢查關鍵字中是否有特殊食物
-                for keyword in keywords:
-                    if keyword in special_food_mapping:
-                        mapped_keywords = special_food_mapping[keyword]
-                        print(f"檢測到特定食物：{keyword} → 搜尋關鍵字：{', '.join(mapped_keywords)}")
-                        return mapped_keywords
-                
-                # 後備檢查：直接在使用者輸入中檢查具體食物名稱（防止ChatGPT過度泛化）
-                user_input_lower = user_input.lower()
-                for specific_food, mapped_keywords in special_food_mapping.items():
-                    if specific_food in user_input_lower or specific_food.lower() in user_input_lower:
-                        print(f"直接檢測到使用者輸入的具體食物：{specific_food} → 搜尋關鍵字：{', '.join(mapped_keywords)}")
-                        return mapped_keywords
-                
-                # 提取食物類型偏好
+                if keywords:
+                    print(f"🎯 檢測到食物關鍵字：{', '.join(keywords)}")
+                    return keywords[:3]
+
+                # 2) 若無關鍵字，再使用食物大類（例如：麵食、小吃）
                 food_categories = analysis.get("food_preferences", {}).get("categories", [])
                 if food_categories:
-                    print(f"檢測到用戶明確需求：{', '.join(food_categories)}")
+                    print(f"🎯 檢測到食物類別：{', '.join(food_categories)}")
                     return food_categories[:3]  # 限制最多3個類型
-                
-                # 如果有關鍵字但不在特殊映射中，直接使用關鍵字
-                if keywords:
-                    print(f"檢測到食物關鍵字：{', '.join(keywords)}")
-                    return keywords[:3]
                 
                 # 根據情境分析
                 mood_context = analysis.get("food_preferences", {}).get("mood_context", "")
                 if mood_context:
-                    print(f"分析用戶情境：{mood_context}")
+                    print(f"💭 分析用戶情境：{mood_context}")
                     if "熱" in mood_context and ("想吃" in mood_context or "冰" in mood_context):
                         return ["冰品", "甜點", "涼麵"]
                     elif "冷" in mood_context:
@@ -491,34 +377,34 @@ class SmartRecommendationEngine:
             
             else:
                 # ChatGPT 分析失敗，使用備用分析
-                print(f"ChatGPT 分析失敗，使用備用方法")
+                print(f"⚠️ ChatGPT 分析失敗，使用備用方法")
                 fallback = analysis_result.get("fallback_analysis", {})
                 food_categories = fallback.get("food_preferences", {}).get("categories", [])
                 if food_categories:
-                    print(f"備用分析檢測到：{', '.join(food_categories)}")
+                    print(f"🎯 備用分析檢測到：{', '.join(food_categories)}")
                     return food_categories[:3]
                     
         except Exception as e:
-            print(f"對話分析錯誤: {e}")
+            print(f"❌ 對話分析錯誤: {e}")
         
         # 如果所有分析都失敗，使用時間推薦或天氣推薦
-        print(f"使用預設邏輯根據時間和天氣推薦")
+        print(f"🤖 使用預設邏輯根據時間和天氣推薦")
         
         # 簡單關鍵字檢測（備用方案）
         detected_keywords = detect_food_keywords_fallback(user_input)
         
         if detected_keywords:
-            print(f"關鍵字檢測到：{', '.join(detected_keywords)}")
+            print(f"🎯 關鍵字檢測到：{', '.join(detected_keywords)}")
             return detected_keywords
         
         # 優先使用時間推薦，如果時間推薦為空則使用天氣推薦
         if time_based_keywords:
-            print(f"根據時間推薦：{', '.join(time_based_keywords)}")
+            print(f"⏰ 根據時間推薦：{', '.join(time_based_keywords)}")
             return time_based_keywords
         
         # 根據天氣決定預設關鍵字
         weather_keywords = get_weather_based_keywords(sweat_index, temperature)
-        print(f"根據天氣推薦：{', '.join(weather_keywords)}")
+        print(f"🌤️ 根據天氣推薦：{', '.join(weather_keywords)}")
         return weather_keywords
     
     def _generate_search_plan(self, location, sweat_data, search_keywords, user_input, max_distance_km=None):
@@ -585,10 +471,13 @@ class SmartRecommendationEngine:
                 analysis = analysis_result["analysis"]
                 food_prefs = analysis.get("food_preferences", {})
                 
-                # 顯示檢測到的食物偏好
+                # 顯示檢測到的食物偏好（先關鍵字、後類別）
+                if food_prefs.get("keywords"):
+                    kw_str = ", ".join(food_prefs["keywords"])
+                    plan_parts.append(f"🎯 AI 關鍵字：{kw_str}")
                 if food_prefs.get("categories"):
                     categories_str = ", ".join(food_prefs["categories"])
-                    plan_parts.append(f"🎯 AI 分析檢測到需求：{categories_str}")
+                    plan_parts.append(f"� 類別：{categories_str}")
                 
                 # 顯示情境分析
                 if food_prefs.get("mood_context"):

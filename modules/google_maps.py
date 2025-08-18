@@ -2447,7 +2447,7 @@ def search_restaurants(keyword: str, user_address: Optional[str] = None, max_res
     """
     # 檢查快取
     try:
-        from modules.cache_manager import get_restaurant_cache, set_restaurant_cache
+        from modules.sqlite_cache_manager import get_restaurant_cache, set_restaurant_cache
         cache_location = user_address or "unknown"
         cached_results = get_restaurant_cache(keyword, cache_location, max_results)
         if cached_results:
