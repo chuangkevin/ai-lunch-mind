@@ -411,8 +411,68 @@
     const sendButton = document.getElementById('sendButton');
     const geoButton = document.getElementById('geoButton');
 
-    // --- Geolocation ---
-    let userCoords = null; // {lat, lng, address}
+    // --- Location Management ---
+    let userCoords = null; // {lat, lng, address, source: 'gps'|'manual'|'chat'}
+
+    function setLocation(address, source, lat, lng) {
+      userCoords = { lat: lat || null, lng: lng || null, address, source };
+      updateLocationBar();
+    }
+
+    function updateLocationBar() {
+      let bar = document.getElementById('locationBar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'locationBar';
+        bar.style.cssText = 'padding:8px 16px;background:#e8f5e9;border-bottom:1px solid #c8e6c9;display:flex;align-items:center;gap:8px;font-size:13px;color:#2e7d32;';
+        const chatContainer = document.querySelector('.chat-container');
+        const chatMsgs = document.getElementById('chatMessages');
+        chatContainer.insertBefore(bar, chatMsgs);
+      }
+      if (!userCoords) {
+        bar.style.display = 'none';
+        return;
+      }
+      bar.style.display = 'flex';
+      const sourceLabel = userCoords.source === 'gps' ? 'GPS' : userCoords.source === 'chat' ? '對話' : '手動';
+      bar.innerHTML = `
+        <span>📍 <strong>${userCoords.address}</strong></span>
+        <span style="color:#81c784;font-size:11px;">(${sourceLabel})</span>
+        <button onclick="promptManualLocation()" style="margin-left:auto;padding:2px 10px;border:1px solid #81c784;border-radius:12px;background:white;color:#2e7d32;cursor:pointer;font-size:12px;">修正</button>
+        <button onclick="clearLocation()" style="padding:2px 10px;border:1px solid #ef9a9a;border-radius:12px;background:white;color:#c62828;cursor:pointer;font-size:12px;">清除</button>
+      `;
+    }
+
+    function clearLocation() {
+      userCoords = null;
+      geoButton.classList.remove('located');
+      const bar = document.getElementById('locationBar');
+      if (bar) bar.style.display = 'none';
+      addMessage('<small>📍 位置已清除。您可以重新定位或在訊息中指定位置。</small>');
+    }
+
+    function promptManualLocation() {
+      const addr = prompt('請輸入您的位置（地標、地址或路口）：', userCoords ? userCoords.address : '');
+      if (addr && addr.trim()) {
+        setLocation(addr.trim(), 'manual');
+        addMessage(`
+          <div style="color:#1b5e20;background:#e8f5e9;padding:10px;border-radius:10px;border-left:4px solid #4caf50;">
+            📍 位置已更新為：<strong>${addr.trim()}</strong>
+          </div>
+        `);
+      }
+    }
+
+    // Detect location mentioned in user's chat message
+    function extractLocationFromMessage(msg) {
+      // "我在XXX" pattern
+      const atMatch = msg.match(/我在([^\s，。！？,]{2,20})/);
+      if (atMatch) return atMatch[1];
+      // "XXX附近" pattern
+      const nearMatch = msg.match(/([^\s，。！？,]{2,15})附近/);
+      if (nearMatch) return nearMatch[1];
+      return null;
+    }
 
     function requestGeolocation() {
       if (!navigator.geolocation) {
@@ -427,28 +487,32 @@
         async (pos) => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
-          userCoords = { lat, lng, address: `${lat},${lng}` };
+          let address = `${lat.toFixed(5)},${lng.toFixed(5)}`;
 
-          // Reverse geocode to get readable address
+          // Reverse geocode
           try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=zh-TW`);
+            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=zh-TW&zoom=18`);
             const data = await resp.json();
-            if (data.display_name) {
-              userCoords.address = data.display_name;
+            if (data.address) {
+              // Build a shorter, more useful address
+              const a = data.address;
+              const parts = [a.road, a.neighbourhood, a.suburb || a.city_district, a.city || a.county].filter(Boolean);
+              address = parts.join(', ') || data.display_name;
             }
           } catch (e) {
-            console.warn('Reverse geocode failed, using coords', e);
+            console.warn('Reverse geocode failed', e);
           }
 
           geoButton.classList.remove('loading');
           geoButton.classList.add('located');
           geoButton.textContent = '📍';
+          setLocation(address, 'gps', lat, lng);
           addMessage(`
-            <div style="color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 10px; border-left: 4px solid #4caf50;">
+            <div style="color:#1b5e20;background:#e8f5e9;padding:12px;border-radius:10px;border-left:4px solid #4caf50;">
               <strong>📍 已取得您的位置</strong><br>
-              ${userCoords.address}<br><br>
-              <small>現在直接輸入想吃什麼就好，例如：「想吃拉麵」「200元以內的便當」</small><br>
-              <small>如需重新定位，點左下角 📍 按鈕即可。</small>
+              ${address}<br><br>
+              <small>GPS 定位可能有誤差，如不準確請點上方 <strong>修正</strong> 按鈕手動輸入。</small><br>
+              <small>在對話中提到的地點（如「我在台北101」）會自動覆蓋 GPS 位置。</small>
             </div>
           `);
         },
@@ -456,13 +520,14 @@
           geoButton.classList.remove('loading');
           geoButton.textContent = '📍';
           let msg = '定位失敗。';
-          if (err.code === 1) msg = '您拒絕了定位權限。點左下角 📍 可以再次嘗試。';
-          else if (err.code === 2) msg = '無法取得位置資訊，請手動輸入。';
-          else if (err.code === 3) msg = '定位超時，請再試一次或手動輸入位置。';
+          if (err.code === 1) msg = '您拒絕了定位權限。';
+          else if (err.code === 2) msg = '無法取得位置資訊。';
+          else if (err.code === 3) msg = '定位超時。';
           addMessage(`
-            <div style="color: #b71c1c; background: #ffebee; padding: 12px; border-radius: 10px; border-left: 4px solid #f44336;">
+            <div style="color:#b71c1c;background:#ffebee;padding:12px;border-radius:10px;border-left:4px solid #f44336;">
               <strong>⚠️ ${msg}</strong><br>
-              <small>您可以手動輸入位置，例如：「我在台北101」</small>
+              <small>點 📍 重試，或點下方按鈕手動輸入位置。</small><br><br>
+              <button onclick="promptManualLocation()" style="padding:6px 16px;border:1px solid #2196f3;border-radius:15px;background:white;color:#1565c0;cursor:pointer;">📝 手動輸入位置</button>
             </div>
           `);
         },
@@ -625,9 +690,14 @@
       const message = userInput.value.trim();
       if (!message) return;
 
-      // Auto-inject GPS location if available and user didn't specify one
+      // Location priority: 1) chat mention  2) manual/GPS saved  3) nothing
       let fullMessage = message;
-      if (userCoords && !message.match(/我在|台北|高雄|台中|台南|新北|桃園|maps\.app|google\.com\/maps/)) {
+      const chatLocation = extractLocationFromMessage(message);
+      if (chatLocation) {
+        // User mentioned a location in this message — use it and update saved location
+        setLocation(chatLocation, 'chat');
+      } else if (userCoords) {
+        // No location in message — inject saved location
         fullMessage = `我在${userCoords.address}，${message}`;
       }
 
