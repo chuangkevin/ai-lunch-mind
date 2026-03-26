@@ -343,7 +343,7 @@ def _enrich_restaurant(r: dict) -> dict:
 
 # AI 午餐推薦主功能 API 端點
 @app.get("/ai-lunch-recommendation")
-def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "", max_results: int = 10):
+async def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "", max_results: int = 10):
     """
     AI 午餐推薦主功能 API 端點
     :param location: 位置資訊（地址、地標、經緯度）
@@ -351,23 +351,29 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
     :param max_results: 最大推薦結果數量
     :return: 智能餐廳推薦結果
     """
+    import asyncio
+
     try:
         if not location:
             raise HTTPException(status_code=400, detail="請提供位置資訊（location 參數）")
 
-        # 限制最大結果數量
         max_results = min(max_results, 20)
 
         print(f"[AI推薦] 位置: {location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
 
         gen_rec = _get_generate_recommendation()
 
-        # 調用新推薦引擎
-        recommendation_result = gen_rec(
-            location=location,
-            user_input=user_input,
-            max_results=max_results,
-        )
+        loop = asyncio.get_event_loop()
+        try:
+            recommendation_result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: gen_rec(location=location, user_input=user_input, max_results=max_results),
+                ),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="推薦搜尋超時（30秒），請稍後再試")
 
         # 檢查是否有錯誤
         if 'error' in recommendation_result:
@@ -409,31 +415,40 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
 
 # 對話式推薦 API 端點（支援位置自動解析）
 @app.get("/chat-recommendation")
-def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
+async def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
     """
     對話式餐廳推薦 API 端點（分階段執行）
     :param message: 完整的使用者輸入訊息
     :param phase: 執行階段 ("start" 回傳搜尋計劃, "search" 執行實際搜尋)
     :return: 分階段的推薦結果
     """
+    import asyncio
+
     try:
         if not message:
             raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
 
         print(f"[對話推薦] 使用者訊息: '{message}', 階段: {phase}")
 
+        if phase not in ("start", "search"):
+            raise HTTPException(status_code=400, detail="phase 參數必須是 'start' 或 'search'")
+
         gen_rec = _get_generate_recommendation()
 
-        # The new engine does not support phased execution; run the full
-        # pipeline and return appropriate shapes for each phase.
-        if phase == "start":
-            # For backward compatibility, run full pipeline and return the
-            # plan-like portion so the frontend can display immediately.
-            result = gen_rec(
-                location=message,
-                user_input=message,
-                max_results=10,
+        # Run blocking pipeline in a thread to avoid blocking uvicorn event loop
+        loop = asyncio.get_event_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: gen_rec(location=message, user_input=message, max_results=10),
+                ),
+                timeout=30,
             )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="推薦搜尋超時（30秒），請稍後再試")
+
+        if phase == "start":
             return {
                 "phase": "plan",
                 "success": result.get("success", False),
@@ -443,26 +458,16 @@ def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
                 "search_keywords": result.get("search_keywords"),
                 "message": "搜尋計劃已生成",
                 "timestamp": result.get("timestamp"),
-                # Include restaurants so a second call is not strictly needed
                 "restaurants": [
                     _enrich_restaurant(r) for r in result.get("restaurants", [])
                 ],
             }
-
-        elif phase == "search":
-            result = gen_rec(
-                location=message,
-                user_input=message,
-                max_results=10,
-            )
+        else:
             if "restaurants" in result:
                 result["restaurants"] = [
                     _enrich_restaurant(r) for r in result["restaurants"]
                 ]
             return result
-
-        else:
-            raise HTTPException(status_code=400, detail="phase 參數必須是 'start' 或 'search'")
 
     except HTTPException:
         raise
