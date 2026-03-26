@@ -350,3 +350,40 @@ New fields in recommendation API response:
 - Model: `gemini-2.5-flash` for all AI calls (intent analysis + restaurant scoring)
 - Temperature: 0.1 for intent analysis (deterministic), 0.3 for scoring (slight creativity for reasons)
 - Response format: JSON mode where supported
+
+---
+
+## Implementation Status
+
+**Completed: 2026-03-26**
+
+All sections implemented and verified through multi-round AI review panel (Echo/Lisa/Bob/Nova).
+
+| Component | File(s) | Status | Tests |
+|-----------|---------|--------|-------|
+| Gemini API Key Pool | `modules/ai/gemini_pool.py` | Done | 10 tests |
+| Intent Analyzer | `modules/ai/intent_analyzer.py` | Done | 6 tests |
+| Restaurant Scorer | `modules/ai/restaurant_scorer.py` | Done | 19 tests |
+| Browser Pool | `modules/scraper/browser_pool.py` | Done | - |
+| CSS Selectors | `modules/scraper/selectors.py` | Done | - |
+| Google Maps Scraper | `modules/scraper/google_maps.py` | Done | - |
+| Google Search Scraper | `modules/scraper/google_search.py` | Done | - |
+| PTT Scraper | `modules/scraper/ptt_scraper.py` | Done | - |
+| Geocoding | `modules/geo/geocoding.py` | Done | - |
+| Distance | `modules/geo/distance.py` | Done | - |
+| Recommendation Engine | `modules/recommendation_engine.py` | Done | 7 tests |
+| Main API | `main.py` | Done | - |
+| Settings Page | `frontend/settings.html` | Done | - |
+| Chat UI Update | `frontend/ai_lunch.html` | Done | - |
+| Integration Tests | `test_system_overhaul.py` | 43/43 pass | - |
+
+### Review Issues Resolved
+- Thread-safe per-model api_key (no global genai.configure)
+- auto_retry uses tried_keys set (no TOCTOU race)
+- GeminiPoolExhausted custom exception
+- Social proof weighted scoring per spec
+- Google Maps $$ price notation support
+- CJK fuzzy matching 2-char minimum
+- Capped social proof lookups (max 3, deadline guard)
+- Google Search timeout fixed (0.5s sleep)
+- Deduplicated _parse_price_avg
