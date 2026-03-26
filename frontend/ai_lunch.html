@@ -121,6 +121,27 @@
       cursor: not-allowed;
       transform: none;
     }
+
+    #geoButton {
+      padding: 10px 14px;
+      background: linear-gradient(135deg, #43a047, #2e7d32);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      transition: transform 0.2s, background 0.3s;
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #geoButton:hover { transform: translateY(-2px); }
+    #geoButton.loading { animation: pulse 1s infinite; background: linear-gradient(135deg, #fb8c00, #e65100); }
+    #geoButton.located { background: linear-gradient(135deg, #00897b, #004d40); }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
     
     .restaurant-card {
       background: white;
@@ -378,6 +399,7 @@
     </div>
     
     <div class="input-area">
+      <button onclick="requestGeolocation()" id="geoButton" title="取得目前位置">📍</button>
       <textarea id="userInput" placeholder="告訴我您的位置和想吃什麼... (Shift+Enter 換行，Enter 送出)" rows="1" onkeydown="handleKeyDown(event)"></textarea>
       <button onclick="sendMessage()" id="sendButton">推薦</button>
     </div>
@@ -387,6 +409,66 @@
     const chatMessages = document.getElementById('chatMessages');
     const userInput = document.getElementById('userInput');
     const sendButton = document.getElementById('sendButton');
+    const geoButton = document.getElementById('geoButton');
+
+    // --- Geolocation ---
+    let userCoords = null; // {lat, lng, address}
+
+    function requestGeolocation() {
+      if (!navigator.geolocation) {
+        addMessage('您的瀏覽器不支援定位功能，請手動輸入位置。');
+        return;
+      }
+      geoButton.classList.add('loading');
+      geoButton.textContent = '...';
+      addMessage('📡 正在取得您的位置...');
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          userCoords = { lat, lng, address: `${lat},${lng}` };
+
+          // Reverse geocode to get readable address
+          try {
+            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=zh-TW`);
+            const data = await resp.json();
+            if (data.display_name) {
+              userCoords.address = data.display_name;
+            }
+          } catch (e) {
+            console.warn('Reverse geocode failed, using coords', e);
+          }
+
+          geoButton.classList.remove('loading');
+          geoButton.classList.add('located');
+          geoButton.textContent = '📍';
+          addMessage(`
+            <div style="color: #1b5e20; background: #e8f5e9; padding: 12px; border-radius: 10px; border-left: 4px solid #4caf50;">
+              <strong>📍 已取得您的位置</strong><br>
+              ${userCoords.address}<br><br>
+              <small>現在直接輸入想吃什麼就好，例如：「想吃拉麵」「200元以內的便當」</small><br>
+              <small>如需重新定位，點左下角 📍 按鈕即可。</small>
+            </div>
+          `);
+        },
+        (err) => {
+          geoButton.classList.remove('loading');
+          geoButton.textContent = '📍';
+          let msg = '定位失敗。';
+          if (err.code === 1) msg = '您拒絕了定位權限。點左下角 📍 可以再次嘗試。';
+          else if (err.code === 2) msg = '無法取得位置資訊，請手動輸入。';
+          else if (err.code === 3) msg = '定位超時，請再試一次或手動輸入位置。';
+          addMessage(`
+            <div style="color: #b71c1c; background: #ffebee; padding: 12px; border-radius: 10px; border-left: 4px solid #f44336;">
+              <strong>⚠️ ${msg}</strong><br>
+              <small>您可以手動輸入位置，例如：「我在台北101」</small>
+            </div>
+          `);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    }
     
     function addMessage(content, isUser = false) {
       const messageDiv = document.createElement('div');
@@ -542,19 +624,25 @@
     async function sendMessage() {
       const message = userInput.value.trim();
       if (!message) return;
-      
-      // 添加使用者訊息
+
+      // Auto-inject GPS location if available and user didn't specify one
+      let fullMessage = message;
+      if (userCoords && !message.match(/我在|台北|高雄|台中|台南|新北|桃園|maps\.app|google\.com\/maps/)) {
+        fullMessage = `我在${userCoords.address}，${message}`;
+      }
+
+      // 添加使用者訊息 (show original, send with location)
       addMessage(message, true);
       userInput.value = '';
       sendButton.disabled = true;
-      
+
       // 添加載入訊息
       const loadingMsg = addLoadingMessage();
-      
+
       try {
         // 第一階段：獲取搜尋計劃
         console.log('🔍 第一階段：獲取搜尋計劃...');
-        const planResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(message)}&phase=start`);
+        const planResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(fullMessage)}&phase=start`);
         const planData = await planResponse.json();
         
         removeLoadingMessage();
@@ -808,16 +896,22 @@
         addMessage(`
           <div style="color: #2c5aa0; background: #e3f2fd; padding: 15px; border-radius: 12px; border-left: 4px solid #2196f3;">
             <strong>🤖 歡迎使用 AI 午餐推薦系統！</strong><br><br>
-            為了提供更精準的推薦，<strong>是否要提供您的目前位置？</strong><br><br>
-            <strong>💡 支援格式：</strong><br>
+            <strong>📍 點左下角的定位按鈕</strong>，自動取得您的位置，之後只要說想吃什麼就好。<br><br>
+            <strong>💡 也可以手動輸入：</strong><br>
             • 地標名稱：台北101、西門町<br>
             • 詳細地址：台北市信義區<br>
-            • Google Maps 分享連結<br>
-            • 或直接說「我在（位置）」<br><br>
-            <small>💬 您也可以直接開始對話，例如：「台北車站附近的拉麵店」</small>
+            • Google Maps 分享連結<br><br>
+            <small>💬 或直接開始：「台北車站附近的拉麵店」「200元以內的便當」</small>
           </div>
         `);
       }, 500);
+
+      // Auto-request geolocation on first visit
+      setTimeout(() => {
+        if (!userCoords && navigator.geolocation) {
+          requestGeolocation();
+        }
+      }, 1500);
     });
   </script>
 </body>
