@@ -286,6 +286,20 @@ Key management interface:
 - Test-validates each key with a Gemini call
 - Shows key status table: suffix, status (active/cooldown/disabled), daily usage count, cooldown timer
 
+### New: Browser Geolocation with 3-Tier Location Priority
+
+Location is resolved with a strict priority order:
+
+1. **Chat mention (highest)** — If user says "我在台北101" or "西門町附近", that location is extracted and used, overriding any saved GPS/manual location.
+2. **Manual input** — User clicks "修正" button in the location bar to type an address. Persists until cleared or overridden by chat.
+3. **GPS (fallback)** — Browser Geolocation API with reverse geocode (Nominatim). Auto-requested on first visit; user can re-trigger via 📍 button anytime (handles accidental permission denial).
+
+**Location bar** — Persistent bar at the top of chat showing current location + source label (GPS/手動/對話) with "修正" and "清除" buttons.
+
+**GPS address formatting** — Reverse geocode returns short format (road, district, city) instead of full Nominatim display_name.
+
+**Auto-inject** — When user sends a message without mentioning a location, the saved location is automatically prepended. If the message already contains a location, it is used as-is.
+
 ### Updated: Recommendation Result Cards
 
 ```
@@ -375,6 +389,7 @@ All sections implemented and verified through multi-round AI review panel (Echo/
 | Main API | `main.py` | Done | - |
 | Settings Page | `frontend/settings.html` | Done | - |
 | Chat UI Update | `frontend/ai_lunch.html` | Done | - |
+| Browser Geolocation | `frontend/ai_lunch.html` | Done | - |
 | Integration Tests | `test_system_overhaul.py` | 43/43 pass | - |
 
 ### Review Issues Resolved
