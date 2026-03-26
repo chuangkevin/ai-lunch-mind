@@ -198,9 +198,7 @@ def _call_gemini(user_message: str, *, api_key=None) -> str:
     透過 gemini_pool 呼叫 Gemini API，回傳原始文字回應。
     使用 @gemini_pool.auto_retry 裝飾器處理暫時性失敗與 key 輪替。
     """
-    import google.generativeai as genai_client
-    genai_client.configure(api_key=api_key)
-
+    # Use per-model api_key to avoid thread-unsafe global genai.configure()
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
         generation_config=genai.GenerationConfig(
@@ -208,6 +206,7 @@ def _call_gemini(user_message: str, *, api_key=None) -> str:
             response_mime_type="application/json",
         ),
         system_instruction=_SYSTEM_PROMPT,
+        api_key=api_key,
     )
     response = model.generate_content(user_message)
     return response.text

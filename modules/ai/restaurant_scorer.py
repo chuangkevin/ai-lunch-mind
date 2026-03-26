@@ -330,13 +330,14 @@ def _call_gemini_scoring(prompt: str, *, api_key: Optional[str] = None) -> Optio
     The api_key parameter is injected by the auto_retry decorator.
     Returns parsed JSON list or None on failure.
     """
-    genai.configure(api_key=api_key)
+    # Use per-model api_key to avoid thread-unsafe global genai.configure()
     model = genai.GenerativeModel(
         GEMINI_MODEL,
         generation_config=genai.GenerationConfig(
             temperature=GEMINI_TEMPERATURE,
             response_mime_type="application/json",
         ),
+        api_key=api_key,
     )
     response = model.generate_content(prompt)
 

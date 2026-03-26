@@ -207,7 +207,7 @@ def search_google_recommendations(
         browser.get(search_url)
 
         # Brief wait for results to render
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         # Check for CAPTCHA
         if _is_captcha_page(browser.page_source):

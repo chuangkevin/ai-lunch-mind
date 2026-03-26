@@ -9,10 +9,8 @@ from modules.weather import get_weather_data
 from modules.google_maps import search_restaurants, geocode_address_with_options
 from modules.sweat_index import query_sweat_index_by_location, get_sweat_risk_alerts
 from modules.sweat_index import get_location_coordinates, get_real_weather_data
-from modules.ai_recommendation_engine import SmartRecommendationEngine, get_ai_lunch_recommendation
 
-# 創建全域 AI 推薦引擎實例（支援對話記憶）
-ai_engine = SmartRecommendationEngine()
+# Lazy import: recommendation engine is imported inside endpoints to speed up startup
 
 
 app = FastAPI(title="AI 午餐推薦系統", description="整合天氣查詢與餐廳推薦的智慧系統")
@@ -46,7 +44,7 @@ def restaurant_page():
     return FileResponse(os.path.join(STATIC_DIR, "restaurant.html"))
 
 # 新增流汗指數頁面路由
-@app.get("/sweat_index", response_class=HTMLResponse) 
+@app.get("/sweat_index", response_class=HTMLResponse)
 def sweat_index_page():
     return FileResponse(os.path.join(STATIC_DIR, "sweat_index.html"))
 
@@ -60,8 +58,68 @@ def weather_page():
 def ai_lunch_page():
     return FileResponse(os.path.join(STATIC_DIR, "ai_lunch.html"))
 
+# 新增設定頁面路由
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page():
+    """Settings page for key management"""
+    return FileResponse(os.path.join(STATIC_DIR, "settings.html"))
 
+
+# ---------------------------------------------------------------------------
+# Helper: lazily import the new recommendation engine
+# ---------------------------------------------------------------------------
+_generate_recommendation = None
+
+def _get_generate_recommendation():
+    """Lazily import the new recommendation engine so startup stays fast."""
+    global _generate_recommendation
+    if _generate_recommendation is None:
+        from modules.recommendation_engine import generate_recommendation
+        _generate_recommendation = generate_recommendation
+    return _generate_recommendation
+
+
+# ---------------------------------------------------------------------------
+# Key Management API endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/keys/import")
+async def import_keys(request: Request):
+    """Bulk import Gemini API keys from textarea text"""
+    body = await request.json()
+    keys_text = body.get("keys", "")
+    validate = body.get("validate", False)
+    from modules.ai.gemini_pool import gemini_pool
+    result = gemini_pool.add_keys(keys_text, validate=validate)
+    return result
+
+@app.get("/api/keys/status")
+async def keys_status():
+    """Get all keys status (suffix only, never full key)"""
+    from modules.ai.gemini_pool import gemini_pool
+    return {"keys": gemini_pool.get_key_status()}
+
+@app.delete("/api/keys/{suffix}")
+async def delete_key(suffix: str):
+    """Delete a key by its last 4 characters"""
+    from modules.ai.gemini_pool import gemini_pool
+    try:
+        gemini_pool.remove_key(suffix)
+        return {"status": "ok", "detail": f"已刪除後綴為 {suffix} 的金鑰"}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+@app.get("/api/keys/usage")
+async def keys_usage():
+    """Get usage statistics"""
+    from modules.ai.gemini_pool import gemini_pool
+    return gemini_pool.get_usage_stats()
+
+
+# ---------------------------------------------------------------------------
 # API 路由
+# ---------------------------------------------------------------------------
+
 @app.get("/weather")
 def weather_endpoint(latitude: float = None, longitude: float = None, location: str = None):
     """
@@ -79,16 +137,16 @@ def weather_endpoint(latitude: float = None, longitude: float = None, location: 
             coords = get_location_coordinates(location)
             if not coords:
                 raise HTTPException(status_code=404, detail=f"無法找到地點: {location}")
-            
+
             latitude, longitude, display_name = coords
             print(f"[API] 天氣查詢請求 - 地點: {display_name} ({latitude}, {longitude})")
-            
+
             # 獲取天氣資料
             weather_data = get_real_weather_data(latitude, longitude)
-            
+
             if 'error' in weather_data:
                 raise HTTPException(status_code=500, detail=weather_data['message'])
-            
+
             # 回傳天氣資訊（格式相容於原有前端）
             return {
                 "location": display_name,
@@ -102,7 +160,7 @@ def weather_endpoint(latitude: float = None, longitude: float = None, location: 
             }
         else:
             raise HTTPException(status_code=400, detail="請提供座標或地名")
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -121,19 +179,19 @@ def restaurants_endpoint(keyword: str = None, user_address: str = None, max_resu
     try:
         if not keyword and not user_address:
             raise HTTPException(status_code=400, detail="請提供搜尋關鍵字或地址")
-        
+
         # 限制最大結果數量
         max_results = min(max_results, 20)
-        
+
         print(f"[API] 餐廳搜尋請求 - 關鍵字: {keyword}, 地址: {user_address}")
-        
+
         # 呼叫搜尋函數
         restaurants = search_restaurants(
-            keyword=keyword or "餐廳", 
-            user_address=user_address, 
+            keyword=keyword or "餐廳",
+            user_address=user_address,
             max_results=max_results
         )
-        
+
         return {
             "success": True,
             "restaurants": restaurants,
@@ -141,7 +199,7 @@ def restaurants_endpoint(keyword: str = None, user_address: str = None, max_resu
             "keyword": keyword,
             "user_address": user_address
         }
-        
+
     except Exception as e:
         print(f"[API ERROR] 餐廳搜尋失敗: {e}")
         raise HTTPException(status_code=500, detail=f"搜尋失敗: {str(e)}")
@@ -173,18 +231,18 @@ def sweat_index_endpoint(location: str = None):
     try:
         if not location:
             raise HTTPException(status_code=400, detail="請提供地點名稱、地址或經緯度")
-        
+
         print(f"[API] 流汗指數查詢請求 - 地點: {location}")
-        
+
         # 調用流汗指數查詢函數
         result = query_sweat_index_by_location(location)
-        
+
         # 檢查是否有錯誤
         if 'error' in result:
             raise HTTPException(status_code=500, detail=result['message'])
-        
+
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -198,21 +256,21 @@ def sweat_alerts_endpoint(temperature: float = None, humidity: float = None, win
     """
     流汗風險警報 API 端點
     :param temperature: 溫度
-    :param humidity: 濕度  
+    :param humidity: 濕度
     :param wind_speed: 風速（可選）
     :return: 警報列表
     """
     try:
         if temperature is None or humidity is None:
             raise HTTPException(status_code=400, detail="請提供 temperature 和 humidity 參數")
-        
+
         print(f"[API] 流汗警報查詢請求 - 溫度: {temperature}°C, 濕度: {humidity}%")
-        
+
         # 調用警報函數
         alerts = get_sweat_risk_alerts(temperature, humidity, wind_speed)
-        
+
         return {"alerts": alerts}
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -221,7 +279,7 @@ def sweat_alerts_endpoint(temperature: float = None, humidity: float = None, win
 
 
 # 增強版天氣查詢 API 端點（支援地名）
-@app.get("/weather_enhanced")  
+@app.get("/weather_enhanced")
 def weather_enhanced_endpoint(location: str = None, latitude: float = None, longitude: float = None):
     """
     增強版天氣查詢 API 端點（支援地名和座標）
@@ -236,21 +294,21 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
             coords = get_location_coordinates(location)
             if not coords:
                 raise HTTPException(status_code=404, detail=f"無法找到地點: {location}")
-            
+
             latitude, longitude, display_name = coords
         elif latitude and longitude:
             display_name = f"座標({latitude},{longitude})"
         else:
             raise HTTPException(status_code=400, detail="請提供 location 或 latitude/longitude 參數")
-        
+
         print(f"[API] 增強版天氣查詢請求 - 地點: {display_name}")
-        
+
         # 獲取天氣資料
         weather_data = get_weather_data(latitude, longitude)
-        
+
         if 'error' in weather_data:
             raise HTTPException(status_code=500, detail=weather_data.get('error', '未知錯誤'))
-        
+
         # 回傳天氣資訊
         return {
             "locationName": display_name,
@@ -262,12 +320,25 @@ def weather_enhanced_endpoint(location: str = None, latitude: float = None, long
             "data_time": weather_data.get('data_time'),
             "rain_probability": weather_data.get('rain_probability', {"probability": "N/A", "source": "無資料"})
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         print(f"[API ERROR] 增強版天氣查詢失敗: {e}")
         raise HTTPException(status_code=500, detail=f"查詢失敗: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# AI 午餐推薦 API 端點 (uses new modules when available, falls back to legacy)
+# ---------------------------------------------------------------------------
+
+def _enrich_restaurant(r: dict) -> dict:
+    """Ensure new fields exist on every restaurant dict for frontend compatibility."""
+    r.setdefault("social_proof", None)
+    r.setdefault("ai_reason", None)
+    r.setdefault("estimated_price", None)
+    r.setdefault("relevance_score", None)
+    return r
 
 
 # AI 午餐推薦主功能 API 端點
@@ -283,44 +354,52 @@ def ai_lunch_recommendation_endpoint(location: str = None, user_input: str = "",
     try:
         if not location:
             raise HTTPException(status_code=400, detail="請提供位置資訊（location 參數）")
-        
+
         # 限制最大結果數量
         max_results = min(max_results, 20)
-        
+
         print(f"[AI推薦] 位置: {location}, 使用者輸入: '{user_input}', 最大結果: {max_results}")
-        
-        # 調用 AI 推薦引擎（已整合驗證功能）
-        recommendation_result = ai_engine.generate_recommendation(
+
+        gen_rec = _get_generate_recommendation()
+
+        # 調用新推薦引擎
+        recommendation_result = gen_rec(
             location=location,
             user_input=user_input,
-            max_results=max_results
+            max_results=max_results,
         )
-        
+
         # 檢查是否有錯誤
         if 'error' in recommendation_result:
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail=recommendation_result.get('message', '推薦生成失敗')
             )
-        
+
+        # Enrich restaurants with new fields for frontend
+        if "restaurants" in recommendation_result:
+            recommendation_result["restaurants"] = [
+                _enrich_restaurant(r) for r in recommendation_result["restaurants"]
+            ]
+
         # 提取驗證結果用於記錄
         validation_results = recommendation_result.get('validation_results', {})
-        
+
         # 記錄驗證警告（不影響使用者回應）
         location_val = validation_results.get('location_validation', {})
         if not location_val.get('is_valid', True):
-            print(f"⚠️ API警告 - 位置驗證問題：{location_val.get('issues', [])}")
-        
+            print(f"[WARNING] API警告 - 位置驗證問題：{location_val.get('issues', [])}")
+
         plan_val = validation_results.get('plan_validation', {})
         if not plan_val.get('is_relevant', True):
-            print(f"⚠️ API警告 - 計畫相關性問題：{plan_val.get('missing_aspects', [])}")
-        
+            print(f"[WARNING] API警告 - 計畫相關性問題：{plan_val.get('missing_aspects', [])}")
+
         rec_val = validation_results.get('recommendation_validation', {})
         if not rec_val.get('is_satisfactory', True):
-            print(f"⚠️ API警告 - 推薦品質問題：{rec_val.get('issues', [])}")
-        
+            print(f"[WARNING] API警告 - 推薦品質問題：{rec_val.get('issues', [])}")
+
         return recommendation_result
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -340,36 +419,51 @@ def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
     try:
         if not message:
             raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
-        
+
         print(f"[對話推薦] 使用者訊息: '{message}', 階段: {phase}")
-        
-        # 根據階段執行對應操作
+
+        gen_rec = _get_generate_recommendation()
+
+        # The new engine does not support phased execution; run the full
+        # pipeline and return appropriate shapes for each phase.
         if phase == "start":
-            # 第一階段：只生成搜尋計劃
-            result = ai_engine.process_conversation(message, phase="start")
-            if result.get("phase") == "plan":
-                # 返回搜尋計劃，讓前端先顯示
-                return {
-                    "phase": "plan",
-                    "success": True,
-                    "location": result.get("location"),
-                    "search_plan": result.get("search_plan"),
-                    "weather_info": result.get("weather_info"),
-                    "search_keywords": result.get("search_keywords"),
-                    "message": "搜尋計劃已生成",
-                    "timestamp": result.get("timestamp")
-                }
-            else:
-                return result
-        
+            # For backward compatibility, run full pipeline and return the
+            # plan-like portion so the frontend can display immediately.
+            result = gen_rec(
+                location=message,
+                user_input=message,
+                max_results=10,
+            )
+            return {
+                "phase": "plan",
+                "success": result.get("success", False),
+                "location": result.get("location"),
+                "search_plan": result.get("search_plan"),
+                "weather_info": result.get("weather_info"),
+                "search_keywords": result.get("search_keywords"),
+                "message": "搜尋計劃已生成",
+                "timestamp": result.get("timestamp"),
+                # Include restaurants so a second call is not strictly needed
+                "restaurants": [
+                    _enrich_restaurant(r) for r in result.get("restaurants", [])
+                ],
+            }
+
         elif phase == "search":
-            # 第二階段：執行實際餐廳搜尋
-            result = ai_engine.process_conversation(message, phase="search")
+            result = gen_rec(
+                location=message,
+                user_input=message,
+                max_results=10,
+            )
+            if "restaurants" in result:
+                result["restaurants"] = [
+                    _enrich_restaurant(r) for r in result["restaurants"]
+                ]
             return result
-        
+
         else:
             raise HTTPException(status_code=400, detail="phase 參數必須是 'start' 或 'search'")
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -379,58 +473,63 @@ def chat_recommendation_endpoint(message: str = None, phase: str = "start"):
 
 # 分階段對話式推薦 API 端點（POST 版本，支援 JSON 請求體）
 @app.post("/chat/recommend")
-def staged_chat_recommendation(request: Request):
+async def staged_chat_recommendation(request: Request):
     """
     分階段對話式餐廳推薦 API 端點
     支援兩個階段：
     1. phase="start" - 返回搜尋計劃
     2. phase="search" - 執行實際搜尋
-    
+
     POST Body:
     {
         "message": "使用者訊息",
         "phase": "start" | "search"
     }
     """
-    import asyncio
-    
-    async def handle_request():
-        try:
-            # 解析 JSON 請求體
-            body = await request.json()
-            message = body.get("message")
-            phase = body.get("phase", "start")
-            
-            if not message:
-                raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
-            
-            print(f"[分階段推薦] 階段: {phase}, 訊息: '{message}'")
-            
-            # 使用 AI 推薦引擎處理對話（分階段）
-            result = ai_engine.process_conversation(message, phase=phase)
-            
-            # 根據階段決定回應內容
-            if phase == "start":
-                response_text = result.get("search_plan", "搜尋計劃生成中...")
-            else:
-                response_text = result.get("recommendation_summary", "推薦結果處理中...")
-            
-            return {
-                "status": "success",
-                "phase": phase,
-                "response": response_text,
-                "recommendations": result.get("restaurants", []),
-                "data": result,
-                "timestamp": result.get("timestamp")
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"[API ERROR] 分階段推薦失敗: {e}")
-            raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
-    
-    return asyncio.run(handle_request())
+    try:
+        # 解析 JSON 請求體
+        body = await request.json()
+        message = body.get("message")
+        phase = body.get("phase", "start")
+
+        if not message:
+            raise HTTPException(status_code=400, detail="請提供使用者訊息（message 參數）")
+
+        print(f"[分階段推薦] 階段: {phase}, 訊息: '{message}'")
+
+        gen_rec = _get_generate_recommendation()
+
+        # The new engine runs the full pipeline in one call.
+        result = gen_rec(
+            location=message,
+            user_input=message,
+            max_results=10,
+        )
+
+        # 根據階段決定回應內容
+        if phase == "start":
+            response_text = result.get("search_plan", "搜尋計劃生成中...")
+        else:
+            response_text = result.get("recommendation_summary", "推薦結果處理中...")
+
+        # Enrich restaurants with new fields
+        restaurants = result.get("restaurants", [])
+        restaurants = [_enrich_restaurant(r) for r in restaurants]
+
+        return {
+            "status": "success",
+            "phase": phase,
+            "response": response_text,
+            "recommendations": restaurants,
+            "data": result,
+            "timestamp": result.get("timestamp")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API ERROR] 分階段推薦失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
 
 
 # 健康檢查 API 端點
@@ -442,12 +541,21 @@ def health_check():
     try:
         # 檢查環境變數
         api_key_status = "已設置" if os.getenv("CWB_API_KEY") else "未設置"
-        
+
+        # Check Gemini key pool status
+        try:
+            from modules.ai.gemini_pool import gemini_pool
+            gemini_status = gemini_pool.get_key_status()
+            gemini_key_count = len(gemini_status)
+        except Exception:
+            gemini_key_count = 0
+
         return {
             "status": "healthy",
             "service": "AI 午餐推薦系統（整合流汗指數）",
-            "version": "3.0.0",
+            "version": "4.0.0",
             "cwb_api_key": api_key_status,
+            "gemini_keys": gemini_key_count,
             "endpoints": [
                 "/ai-lunch-recommendation?location=地點&user_input=需求 - AI智能推薦",
                 "/chat-recommendation?message=完整訊息 - 對話式推薦",
@@ -456,13 +564,17 @@ def health_check():
                 "/weather_enhanced?location=地點名稱",
                 "/weather?latitude=緯度&longitude=經度",
                 "/restaurants?keyword=關鍵字&user_address=地址",
+                "/api/keys/import - POST - 匯入 Gemini API 金鑰",
+                "/api/keys/status - GET - 金鑰狀態",
+                "/api/keys/usage - GET - 使用統計",
                 "/health"
             ],
             "pages": [
                 "/ - 主頁面",
                 "/ai_lunch - AI智能午餐推薦頁面",
+                "/settings - 設定頁面（金鑰管理）",
                 "/sweat_index - 流汗指數查詢頁面",
-                "/restaurant - 餐廳搜尋頁面", 
+                "/restaurant - 餐廳搜尋頁面",
                 "/weather_page - 天氣查詢頁面"
             ]
         }
@@ -476,18 +588,21 @@ if __name__ == "__main__":
         print("警告：CWB_API_KEY 環境變數未設置，無法獲取真實天氣資料")
         print("請先設置中央氣象署 API 金鑰")
         print()
-    
+
     print("AI 午餐推薦系統（整合流汗指數）啟動中...")
     print("可用頁面：")
     print("   • http://localhost:5000/ - 主頁面")
-    print("   • http://localhost:5000/sweat_index - 流汗指數查詢介面") 
+    print("   • http://localhost:5000/ai_lunch - AI智能午餐推薦介面")
+    print("   • http://localhost:5000/settings - 設定頁面（金鑰管理）")
+    print("   • http://localhost:5000/sweat_index - 流汗指數查詢介面")
     print("   • http://localhost:5000/restaurant - 餐廳搜尋介面")
     print("   • http://localhost:5000/weather_page - 天氣查詢介面")
     print("可用 API：")
     print("   • http://localhost:5000/sweat-index?location=台北101 - 流汗指數查詢")
     print("   • http://localhost:5000/weather_enhanced?location=花蓮市 - 增強版天氣查詢")
+    print("   • http://localhost:5000/api/keys/status - Gemini 金鑰狀態")
     print("   • http://localhost:5000/health - 健康檢查")
     print()
-    
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5000)
