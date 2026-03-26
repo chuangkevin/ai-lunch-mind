@@ -32,6 +32,7 @@
       text-align: center;
       font-size: 1.3em;
       font-weight: bold;
+      position: relative;
     }
     
     .chat-messages {
@@ -182,6 +183,47 @@
     .restaurant-url a:hover {
       text-decoration: underline;
     }
+
+    .restaurant-ai-reason {
+      font-style: italic;
+      font-size: 0.85em;
+      color: #555;
+      margin: 6px 0;
+      padding-left: 4px;
+      border-left: 3px solid #667eea;
+      padding: 4px 0 4px 10px;
+    }
+
+    .social-proof-badge {
+      display: inline-block;
+      background: linear-gradient(135deg, #fdcb6e, #f39c12);
+      color: #fff;
+      font-size: 0.78em;
+      font-weight: bold;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    .estimated-price-tag {
+      background: #fff3e0;
+      border: 1px solid #ffe0b2;
+      color: #e65100;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 0.85em;
+    }
+
+    .relevance-badge {
+      background: #ede7f6;
+      border: 1px solid #d1c4e9;
+      color: #5e35b1;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.8em;
+      font-weight: 600;
+    }
     
     .distance-link {
       color: #007bff !important;
@@ -295,6 +337,7 @@
   <div class="chat-container">
     <div class="chat-header">
       🍱 AI 午餐推薦系統
+      <a href="/settings" style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); color: white; text-decoration: none; font-size: 0.7em; font-weight: normal; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 15px;">⚙️ 設定</a>
       <div style="font-size: 0.8em; font-weight: normal; margin-top: 5px;">
         智能整合天氣・流汗指數・餐廳搜尋
       </div>
@@ -401,28 +444,47 @@
         infoItems.push(`<span>${tempEmoji} ${restaurant.search_keyword || '一般'}</span>`);
       }
       
+      // New fields: estimated price and relevance score
+      if (restaurant.estimated_price) {
+        infoItems.push(`<span class="estimated-price-tag">💰 約$${restaurant.estimated_price}</span>`);
+      }
+      if (restaurant.relevance_score !== undefined && restaurant.relevance_score !== null) {
+        infoItems.push(`<span class="relevance-badge">相關度 ${restaurant.relevance_score}/10</span>`);
+      }
+
+      // Social proof badge
+      let socialProofHtml = '';
+      if (restaurant.social_proof) {
+        socialProofHtml = '<span class="social-proof-badge">💬 PTT/部落格推薦</span>';
+      }
+
       let card = `
         <div class="restaurant-card">
-          <div class="restaurant-name">🍽️ ${restaurant.name}</div>
+          <div class="restaurant-name">🍽️ ${restaurant.name}${socialProofHtml}</div>
           <div class="restaurant-info">
             ${infoItems.join('')}
           </div>
       `;
-      
+
       if (restaurant.address) {
         card += `<div style="color: #666; font-size: 0.9em; margin: 8px 0;">📍 ${restaurant.address}</div>`;
       }
-      
+
+      // AI reason
+      if (restaurant.ai_reason) {
+        card += `<div class="restaurant-ai-reason">🤖 ${restaurant.ai_reason}</div>`;
+      }
+
       if (restaurant.weather_warning) {
         card += `<div class="weather-warning">⚠️ ${restaurant.weather_warning}</div>`;
       }
-      
+
       if (restaurant.maps_url) {
         card += `<div class="restaurant-url">
           <a href="${restaurant.maps_url}" target="_blank">📱 在 Google Maps 中查看</a>
         </div>`;
       }
-      
+
       card += `</div>`;
       return card;
     }
@@ -528,7 +590,7 @@
           
           // 添加搜尋計劃
           planHtml += `<div style="background: #e8f4fd; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 12px; margin: 10px 0;">
-            <strong>📋 搜尋計劃：</strong><br>
+            <strong>[PLAN] 搜尋計劃：</strong><br>
             ${planData.search_plan.replace(/\n/g, '<br>')}
           </div>`;
           
@@ -657,7 +719,7 @@
           
           // 添加搜尋計劃
           planHtml += `<div style="background: #e8f4fd; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 12px; margin: 10px 0;">
-            <strong>📋 搜尋計劃：</strong><br>
+            <strong>[PLAN] 搜尋計劃：</strong><br>
             ${planData.search_plan.replace(/\n/g, '<br>')}
           </div>`;
           
