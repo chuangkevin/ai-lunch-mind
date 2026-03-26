@@ -441,7 +441,7 @@ async def chat_recommendation_endpoint(message: str = None, phase: str = "start"
             result = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
-                    lambda: gen_rec(location=message, user_input=message, max_results=10),
+                    lambda: gen_rec(location="", user_input=message, max_results=10),
                 ),
                 timeout=30,
             )

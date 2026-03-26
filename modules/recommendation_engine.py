@@ -609,8 +609,35 @@ def generate_recommendation(
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
 
-    # Use location from intent if available and user didn't provide one explicitly
-    effective_location = location or intent.get("location") or ""
+    # Use the AI-extracted location (clean landmark/address) over raw user input.
+    # The raw `location` parameter from the frontend may contain the full user
+    # message (e.g. "我在台北市大安區，我餓了"), which is terrible as a search
+    # query on Google Maps.  The intent analyzer extracts a clean location.
+    intent_location = intent.get("location", "")
+    effective_location = intent_location if intent_location else location
+    # Strip common conversational prefixes from the location
+    for prefix in ("我在", "我想去", "在"):
+        if effective_location.startswith(prefix):
+            effective_location = effective_location[len(prefix):]
+    # If the location still looks like a full sentence (contains food words or
+    # conversational phrases), fall back to a shorter extracted portion.
+    _NOISE_PATTERNS = ("我餓", "想吃", "推薦", "附近", "什麼", "好吃", "便宜")
+    if any(p in effective_location for p in _NOISE_PATTERNS):
+        # Try to extract just the address/landmark part
+        import re
+        addr_match = re.search(
+            r'([\w]*(?:市|縣|區|鎮|鄉|路|街|站|大學|醫院|車站|101|百貨|商圈|夜市|公園)[\w]{0,10})',
+            effective_location,
+        )
+        if addr_match:
+            effective_location = addr_match.group(1)
+        else:
+            # Last resort: take everything before the first comma or conversational word
+            effective_location = re.split(r'[，,。！？]|我餓|想吃|推薦', effective_location)[0].strip()
+
+    logger.info("[Phase 1] Effective location: '%s' (from intent: '%s', raw: '%s')",
+                effective_location, intent_location, location[:50])
+
     if not effective_location:
         return {
             "success": False,
