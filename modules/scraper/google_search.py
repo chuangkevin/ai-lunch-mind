@@ -189,50 +189,40 @@ def search_google_recommendations(
     }
 
     # --- Step 1: Fetch search results via browser pool ---
-    browser = None
     titles: List[str] = []
     snippets: List[str] = []
 
     try:
-        browser = browser_pool.get_browser()
-        if browser is None:
-            logger.warning("Browser pool exhausted, returning empty results")
-            return empty_result
+        with browser_pool.get_browser() as browser:
+            try:
+                browser.set_page_load_timeout(3)
+                browser.get(search_url)
+
+                # Brief wait for results to render
+                time.sleep(0.5)
+
+                # Check for CAPTCHA
+                if _is_captcha_page(browser.page_source):
+                    logger.warning("Google CAPTCHA detected for query: %s", search_query)
+                    return empty_result
+
+                # Extract snippets
+                titles, snippets = _extract_snippets(browser, max_results)
+
+            except TimeoutException:
+                logger.warning("Page load timed out for query: %s", search_query)
+                # Try to extract whatever loaded before timeout
+                try:
+                    titles, snippets = _extract_snippets(browser, max_results)
+                except Exception:
+                    pass
+            except WebDriverException as e:
+                logger.error("Selenium error during Google search: %s", e)
+            except Exception as e:
+                logger.error("Unexpected error during Google search: %s", e)
     except Exception as e:
         logger.warning("Failed to acquire browser from pool: %s", e)
         return empty_result
-
-    try:
-        browser.set_page_load_timeout(3)
-        browser.get(search_url)
-
-        # Brief wait for results to render
-        time.sleep(0.5)
-
-        # Check for CAPTCHA
-        if _is_captcha_page(browser.page_source):
-            logger.warning("Google CAPTCHA detected for query: %s", search_query)
-            return empty_result
-
-        # Extract snippets
-        titles, snippets = _extract_snippets(browser, max_results)
-
-    except TimeoutException:
-        logger.warning("Page load timed out for query: %s", search_query)
-        # Try to extract whatever loaded before timeout
-        try:
-            titles, snippets = _extract_snippets(browser, max_results)
-        except Exception:
-            pass
-    except WebDriverException as e:
-        logger.error("Selenium error during Google search: %s", e)
-    except Exception as e:
-        logger.error("Unexpected error during Google search: %s", e)
-    finally:
-        try:
-            browser_pool.release_browser(browser)
-        except Exception:
-            pass
 
     raw_snippets = snippets if snippets else []
 

@@ -34,6 +34,9 @@ from modules.scraper.google_maps import (
     sort_restaurants_by_distance,
     get_restaurant_details,
     cleanup_resources,
+)
+
+from modules.geo.distance import (
     calculate_walking_distances_parallel,
     calculate_walking_distance_from_google_maps,
     calculate_distance,

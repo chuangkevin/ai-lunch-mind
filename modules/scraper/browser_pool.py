@@ -73,11 +73,7 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--disable-features=VizDisplayCompositor')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-
-    # Extra log suppression
-    options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument('--disable-logging')
     options.add_argument('--disable-gpu-logging')
@@ -176,6 +172,8 @@ class BrowserPool:
             # Pool exhausted -- create a temporary instance
             logger.warning("[WARNING] Pool exhausted, creating temporary browser")
             driver = create_chrome_driver(headless=True)
+            with self.lock:
+                self.all_browsers.append(driver)
             yield driver
         finally:
             if driver:
