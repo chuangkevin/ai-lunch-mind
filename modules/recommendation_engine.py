@@ -672,21 +672,24 @@ def generate_recommendation(
             future_ptt: "ptt",
         }
 
-        for future in as_completed(futures, timeout=SEARCH_TIMEOUT_SECONDS + 1):
-            track_name = futures[future]
-            try:
-                result = future.result(timeout=0.5)
-                if track_name == "google_maps":
-                    maps_results = result
-                elif track_name == "google_search":
-                    google_search_mentions = result
-                elif track_name == "ptt":
-                    ptt_mentions = result
-                logger.info("[Phase 2] Track %s returned %d results", track_name, len(result))
-            except TimeoutError:
-                logger.warning("[Phase 2] Track %s timed out", track_name)
-            except Exception as exc:
-                logger.warning("[Phase 2] Track %s failed: %s", track_name, exc)
+        try:
+            for future in as_completed(futures, timeout=SEARCH_TIMEOUT_SECONDS + 1):
+                track_name = futures[future]
+                try:
+                    result = future.result(timeout=0.5)
+                    if track_name == "google_maps":
+                        maps_results = result
+                    elif track_name == "google_search":
+                        google_search_mentions = result
+                    elif track_name == "ptt":
+                        ptt_mentions = result
+                    logger.info("[Phase 2] Track %s returned %d results", track_name, len(result))
+                except TimeoutError:
+                    logger.warning("[Phase 2] Track %s timed out", track_name)
+                except Exception as exc:
+                    logger.warning("[Phase 2] Track %s failed: %s", track_name, exc)
+        except TimeoutError:
+            logger.warning("[Phase 2] as_completed global timeout — collecting partial results")
 
     # Handle case where as_completed itself times out
     # Collect any remaining results that completed within the window
