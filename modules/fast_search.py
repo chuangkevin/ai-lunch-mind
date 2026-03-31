@@ -1,9 +1,9 @@
-"""Fast restaurant search using HTTP (no Selenium).
+"""Fast restaurant search using Selenium Google Maps (optimized for speed).
 
-Uses googlesearch-python for Google search results + Gemini for extraction.
-Falls back to direct Google Maps URL construction.
-Includes social media search (Dcard, Threads, PTT).
+Uses shared browser pool for all web access to avoid SSL issues.
+Target: < 8 seconds for the entire search pipeline.
 """
+
 import json
 import logging
 import re
@@ -69,138 +69,117 @@ def search_restaurants_fast(
     location: str,
     max_results: int = 5,
 ) -> List[Dict[str, Any]]:
-    """Search for restaurants using HTTP-based Google search (no Selenium).
+    """Search Google Maps for real restaurants using a shared Selenium browser.
 
-    Returns a list of restaurant dicts with name, address, rating, maps_url.
+    Uses a single pre-warmed Chrome instance for speed.
+    Target: < 5 seconds per keyword search.
     """
-    restaurants: List[Dict] = []
+    restaurants = []
 
-    # Strategy 1: googlesearch-python (fast HTTP scraping)
     try:
-        from googlesearch import search as google_search
+        from modules.scraper.browser_pool import browser_pool
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
 
-        query = f"{location} {keyword} 餐廳 推薦"
-        results = list(google_search(query, num_results=10, lang="zh-TW"))
+        search_query = f"{location} {keyword} 餐廳"
+        encoded = quote(search_query)
+        maps_url = f"https://www.google.com/maps/search/{encoded}"
 
-        # Filter for Google Maps results
-        maps_results = [r for r in results if "google.com/maps" in r or "maps.app.goo.gl" in r]
-        other_results = [r for r in results if r not in maps_results]
+        with browser_pool.get_browser() as driver:
+            driver.set_page_load_timeout(5)
 
-        # Extract restaurant info from Maps URLs
-        for url in maps_results[:max_results]:
-            name = _extract_name_from_maps_url(url)
-            if name:
-                restaurants.append({
-                    "name": name,
-                    "address": f"{location}附近",
-                    "rating": None,
-                    "maps_url": url,
-                    "source": "google_maps_url",
-                })
-
-        # If not enough Maps results, use Gemini to extract from search snippets
-        if len(restaurants) < max_results and other_results:
             try:
-                extracted = _extract_restaurants_from_urls(other_results[:5], keyword, location)
-                for r in extracted:
-                    if r.get("name") and not any(
-                        existing["name"] == r["name"] for existing in restaurants
-                    ):
-                        restaurants.append(r)
+                driver.get(maps_url)
+            except Exception:
+                pass  # Timeout is OK, we parse what loaded
+
+            time.sleep(1.5)  # Wait for results to render
+
+            # Parse restaurant results from Google Maps
+            # Google Maps results are in divs with role="feed" > div elements
+            try:
+                results_divs = driver.find_elements(By.CSS_SELECTOR,
+                    'div[role="feed"] > div > div > a[href*="/maps/place/"]')
+
+                if not results_divs:
+                    # Alternative selector
+                    results_divs = driver.find_elements(By.CSS_SELECTOR,
+                        'a[href*="/maps/place/"]')
+
+                for div in results_divs[:max_results]:
+                    try:
+                        href = div.get_attribute('href') or ''
+                        aria_label = div.get_attribute('aria-label') or ''
+
+                        # Extract name from aria-label or href
+                        name = aria_label
+                        if not name:
+                            match = re.search(r'/place/([^/]+)/', href)
+                            if match:
+                                name = match.group(1).replace('+', ' ')
+
+                        if not name or len(name) < 2:
+                            continue
+
+                        # Extract rating from nearby elements
+                        rating = None
+                        try:
+                            parent = div.find_element(By.XPATH, './..')
+                            rating_text = parent.text
+                            rating_match = re.search(r'(\d\.\d)', rating_text)
+                            if rating_match:
+                                rating = float(rating_match.group(1))
+                        except Exception:
+                            pass
+
+                        # Extract address - look for text that looks like an address
+                        address = f"{location}附近"
+                        try:
+                            parent = div.find_element(By.XPATH, './..')
+                            text = parent.text
+                            # Look for address patterns (contains 路/街/巷/號)
+                            for line in text.split('\n'):
+                                if re.search(r'[路街巷號]', line) and '·' not in line:
+                                    address = line.strip()
+                                    break
+                        except Exception:
+                            pass
+
+                        # Extract price level
+                        price_level = None
+                        try:
+                            parent_text = div.find_element(By.XPATH, './..').text
+                            price_match = re.search(r'(\$+)', parent_text)
+                            if price_match:
+                                dollars = len(price_match.group(1))
+                                price_map = {1: '$50-150', 2: '$150-400', 3: '$400-800', 4: '$800+'}
+                                price_level = price_map.get(dollars, '')
+                        except Exception:
+                            pass
+
+                        restaurants.append({
+                            'name': name,
+                            'address': address,
+                            'rating': rating,
+                            'price_level': price_level,
+                            'maps_url': href,
+                            'food_type': keyword,
+                            'source': 'google_maps',
+                        })
+
+                    except Exception as e:
+                        logger.warning("Failed to parse restaurant element: %s", e)
+                        continue
+
             except Exception as e:
-                logger.warning("Gemini extraction failed: %s", e)
+                logger.warning("Failed to find results on Maps page: %s", e)
 
-    except ImportError:
-        logger.warning("googlesearch-python not available")
     except Exception as e:
-        logger.warning("Google search failed: %s", e)
+        logger.warning("Selenium search failed for '%s': %s", keyword, e)
 
-    # Strategy 2: Direct Google Maps search URL construction
-    if len(restaurants) < 3:
-        direct = _build_maps_search_results(keyword, location, max_results - len(restaurants))
-        restaurants.extend(direct)
-
-    return restaurants[:max_results]
-
-
-def _extract_name_from_maps_url(url: str) -> Optional[str]:
-    """Extract restaurant name from a Google Maps URL."""
-    # Pattern: /maps/place/Restaurant+Name/
-    match = re.search(r"/place/([^/@]+)", url)
-    if match:
-        name = match.group(1).replace("+", " ")
-        return name
-    return None
-
-
-def _extract_restaurants_from_urls(
-    urls: List[str],
-    keyword: str,
-    location: str,
-) -> List[Dict]:
-    """Use Gemini to extract restaurant info from search result URLs."""
-    from modules.ai.gemini_pool import gemini_pool
-    from google import genai
-    from google.genai import types
-
-    api_key = gemini_pool.get_key()
-    if not api_key:
-        return []
-
-    prompt = f"""從以下搜尋結果中提取與「{keyword}」相關的餐廳名稱。
-搜尋結果 URL：
-{chr(10).join(urls[:5])}
-
-位置：{location}
-
-回傳 JSON 陣列：
-[{{"name": "餐廳名稱", "source_url": "來源URL"}}]
-
-只提取真實餐廳名稱，不要編造。如果無法確定，回傳空陣列 []。"""
-
-    try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-            ),
-        )
-        extracted = json.loads(resp.text.strip())
-        results = []
-        for item in extracted:
-            name = item.get("name", "")
-            if name:
-                results.append({
-                    "name": name,
-                    "address": f"{location}附近",
-                    "rating": None,
-                    "maps_url": f"https://www.google.com/maps/search/{quote(name)}+{quote(location)}",
-                    "source": "google_search_extracted",
-                })
-        return results
-    except Exception as e:
-        logger.warning("Gemini extraction failed: %s", e)
-        return []
-
-
-def _build_maps_search_results(
-    keyword: str,
-    location: str,
-    count: int,
-) -> List[Dict]:
-    """Build direct Google Maps search URLs as fallback."""
-    encoded = quote(f"{location} {keyword} 餐廳")
-    return [{
-        "name": f"{keyword}餐廳（Google Maps 搜尋）",
-        "address": f"{location}附近",
-        "rating": None,
-        "maps_url": f"https://www.google.com/maps/search/{encoded}",
-        "source": "maps_search_url",
-        "food_type": keyword,
-    }]
+    logger.info("Found %d restaurants for '%s' in '%s'", len(restaurants), keyword, location)
+    return restaurants
 
 
 def enrich_with_gemini(
@@ -319,47 +298,47 @@ def search_social_mentions(
     restaurant_names: List[str],
     location: str,
 ) -> Dict[str, List[Dict]]:
-    """Search social media (Dcard, Threads, PTT) for restaurant mentions.
+    """Search for social media mentions using Selenium Google search.
 
-    Returns a dict: {restaurant_name: [{platform, title, url}]}
+    Uses Selenium instead of googlesearch-python to avoid SSL issues.
+    Returns a dict: {restaurant_name: [{platform, url}]}
     """
     mentions: Dict[str, List[Dict]] = {}
 
     try:
-        from googlesearch import search as google_search
-    except ImportError:
-        logger.warning("googlesearch-python not available for social search")
-        return mentions
+        from modules.scraper.browser_pool import browser_pool
+        from selenium.webdriver.common.by import By
 
-    # Build one query for all restaurants + social platforms
-    names_query = " OR ".join(f'"{n}"' for n in restaurant_names[:5])
-    social_query = f"({names_query}) {location} (site:dcard.tw OR site:threads.net OR site:ptt.cc)"
+        names_part = ' OR '.join(f'"{n}"' for n in restaurant_names[:3])
+        query = f"{names_part} {location} (site:dcard.tw OR site:ptt.cc)"
 
-    try:
-        results = list(google_search(social_query, num_results=15, lang="zh-TW"))
+        with browser_pool.get_browser() as driver:
+            driver.set_page_load_timeout(5)
+            try:
+                driver.get(f"https://www.google.com/search?q={quote(query)}&hl=zh-TW")
+            except Exception:
+                pass  # Timeout is OK, we parse what loaded
+            time.sleep(1)
 
-        for url in results:
-            platform = None
-            if "dcard.tw" in url:
-                platform = "Dcard"
-            elif "threads.net" in url:
-                platform = "Threads"
-            elif "ptt.cc" in url:
-                platform = "PTT"
+            links = driver.find_elements(By.CSS_SELECTOR,
+                'a[href*="dcard.tw"], a[href*="ptt.cc"], a[href*="threads.net"]')
 
-            if not platform:
-                continue
+            for link in links[:10]:
+                url = link.get_attribute('href') or ''
+                platform = None
+                if 'dcard.tw' in url:
+                    platform = 'Dcard'
+                elif 'ptt.cc' in url:
+                    platform = 'PTT'
+                elif 'threads.net' in url:
+                    platform = 'Threads'
 
-            # Match which restaurant this URL mentions
-            for name in restaurant_names:
-                # Simple check: restaurant name in URL or we associate with closest match
-                if name not in mentions:
-                    mentions[name] = []
-                mentions[name].append({
-                    "platform": platform,
-                    "url": url,
-                })
-                break  # assign to first matching restaurant
+                if platform:
+                    for name in restaurant_names:
+                        if name not in mentions:
+                            mentions[name] = []
+                        mentions[name].append({'platform': platform, 'url': url})
+                        break
 
     except Exception as e:
         logger.warning("Social search failed: %s", e)
