@@ -620,42 +620,108 @@ async def chat_recommendation_stream(message: str = None):
                 "source": intent.get("_source", "unknown"),
             })
 
-            # Step 2: Search
+            # Step 2: Ask Gemini directly for restaurant recommendations
+            # This is MUCH faster than Selenium (~3s vs 30s+)
             kw_preview = ", ".join(keywords[:3]) if keywords else "餐廳"
-            yield send_event("thinking", {"step": "search", "message": f"搜尋中：{kw_preview}..."})
+            yield send_event("thinking", {"step": "search", "message": f"搜尋 {location} 的 {kw_preview}..."})
 
-            # Run full pipeline
-            gen_rec = _get_generate_recommendation()
-            result = await asyncio.wait_for(
-                loop.run_in_executor(
+            from modules.ai.gemini_pool import gemini_pool
+
+            search_location = location or "台北"
+            budget_hint = ""
+            if budget and budget.get("max"):
+                budget_hint = f"\n預算：{budget['max']}元以內"
+
+            weather_hint = ""
+            if weather_data and weather_data.get("temperature"):
+                weather_hint = f"\n天氣：{weather_data.get('temperature')}°C, 濕度{weather_data.get('humidity', 'N/A')}%"
+
+            gemini_prompt = f"""你是台灣美食推薦專家。請推薦 {search_location} 附近的餐廳。
+
+使用者需求：{message}
+搜尋關鍵字：{', '.join(keywords)}{budget_hint}{weather_hint}
+現在時間：{'早上' if current_hour < 11 else '中午' if current_hour < 14 else '下午' if current_hour < 17 else '晚上'}
+
+請推薦 5-8 間真實存在的餐廳，必須回傳 JSON 陣列格式：
+[
+  {{
+    "name": "餐廳名稱",
+    "address": "完整地址",
+    "rating": 4.5,
+    "price_level": "$200-350",
+    "food_type": "日式拉麵",
+    "reason": "一句話推薦理由",
+    "distance_estimate": "約500m"
+  }}
+]
+
+重要規則：
+1. 只推薦真實存在的餐廳（不要編造）
+2. 地址要具體到路名門牌
+3. 價格要符合台灣物價
+4. 依距離近到遠排序
+5. 只回傳 JSON，不要其他文字"""
+
+            try:
+                from google import genai as _genai
+                from google.genai import types as _types
+
+                api_key = gemini_pool.get_key()
+                if not api_key:
+                    raise Exception("沒有可用的 Gemini API key")
+
+                client = _genai.Client(api_key=api_key)
+                gemini_resp = await loop.run_in_executor(
                     None,
-                    lambda: gen_rec(location="", user_input=message, max_results=10),
-                ),
-                timeout=25,
-            )
+                    lambda: client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=gemini_prompt,
+                        config=_types.GenerateContentConfig(
+                            temperature=0.4,
+                            response_mime_type="application/json",
+                        ),
+                    ),
+                )
 
-            if result.get("success") and result.get("restaurants"):
-                restaurants = result["restaurants"]
+                resp_text = gemini_resp.text.strip()
+                restaurants = json.loads(resp_text)
+
+                if not isinstance(restaurants, list):
+                    restaurants = restaurants.get("restaurants", []) if isinstance(restaurants, dict) else []
+
                 yield send_event("thinking", {
                     "step": "scoring",
-                    "message": f"找到 {len(restaurants)} 間餐廳，評分排序中...",
+                    "message": f"Gemini 推薦了 {len(restaurants)} 間餐廳",
                 })
 
-                # Send restaurants one by one
-                for i, restaurant in enumerate(restaurants):
-                    _enrich_restaurant(restaurant)
+                for i, r in enumerate(restaurants):
+                    restaurant = {
+                        "name": r.get("name", ""),
+                        "address": r.get("address", ""),
+                        "rating": r.get("rating"),
+                        "price_level": r.get("price_level"),
+                        "food_type": r.get("food_type", ""),
+                        "distance_km": None,
+                        "distance_display": r.get("distance_estimate", ""),
+                        "maps_url": f"https://www.google.com/maps/search/{r.get('name', '')}+{search_location}",
+                        "ai_reason": r.get("reason", ""),
+                        "estimated_price": r.get("price_level"),
+                        "relevance_score": round(10 - i * 0.5, 1),
+                        "social_proof": None,
+                        "source": "gemini",
+                    }
                     yield send_event("restaurant", {"index": i, "restaurant": restaurant})
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
 
                 yield send_event("done", {
                     "total": len(restaurants),
-                    "timing": result.get("timing"),
-                    "search_sources": result.get("search_sources"),
+                    "source": "gemini_direct",
                 })
-            else:
-                yield send_event("error", {
-                    "message": result.get("error", "沒有找到餐廳，請換個說法試試"),
-                })
+
+            except json.JSONDecodeError:
+                yield send_event("error", {"message": "AI 回應格式錯誤，請再試一次"})
+            except Exception as e:
+                yield send_event("error", {"message": f"搜尋失敗: {str(e)}"})
 
         except asyncio.TimeoutError:
             yield send_event("error", {"message": "搜尋超時，請稍後再試"})
