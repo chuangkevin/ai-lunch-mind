@@ -634,9 +634,17 @@
         card += `<div style="margin-top:4px;">${linksHtml}</div>`;
       }
 
-      // Google Maps link
-      if (restaurant.maps_url) {
-        card += `<div style="margin-top: 8px;"><a href="${restaurant.maps_url}" target="_blank" style="color: #1a73e8; text-decoration: none; font-size: 0.85em;">🗺️ 在 Google Maps 中查看</a></div>`;
+      // Google Maps walking directions link
+      {
+        const dest = encodeURIComponent(restaurant.name + ' ' + (restaurant.address || ''));
+        let mapsLink;
+        if (userCoords && userCoords.address) {
+          const origin = encodeURIComponent(userCoords.address);
+          mapsLink = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=walking`;
+        } else {
+          mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking`;
+        }
+        card += `<div style="margin-top: 8px;"><a href="${mapsLink}" target="_blank" style="color: #1a73e8; text-decoration: none; font-size: 0.85em;">🚶 步行導航到這裡</a></div>`;
       }
 
       card += '</div>';
