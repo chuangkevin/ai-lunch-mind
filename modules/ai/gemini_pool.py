@@ -449,10 +449,13 @@ class GeminiKeyPool:
         Returns True if the key is valid, False otherwise.
         """
         try:
-            import google.generativeai as genai
+            from google import genai
 
-            model = genai.GenerativeModel("gemini-2.0-flash-lite", api_key=key)
-            model.generate_content("hi", generation_config={"max_output_tokens": 1})
+            client = genai.Client(api_key=key)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-lite",
+                contents="test",
+            )
             logger.info("GeminiKeyPool: key ...%s 驗證成功", key[-4:])
             return True
         except Exception as e:

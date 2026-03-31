@@ -28,17 +28,21 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # ---------------------------------------------------------------------------
-# Mock google.generativeai if not installed (allows tests to run without it)
+# Mock google-genai SDK if not installed (allows tests to run without it)
 # ---------------------------------------------------------------------------
-if "google.generativeai" not in sys.modules:
+try:
+    from google import genai as _real_genai
+except ImportError:
     _google = types.ModuleType("google")
-    _google.__path__ = []  # make it a package
-    _genai = types.ModuleType("google.generativeai")
-    _genai.GenerativeModel = MagicMock
-    _genai.GenerationConfig = MagicMock
-    _genai.configure = MagicMock()
+    _google.__path__ = []
+    _genai = types.ModuleType("google.genai")
+    _genai.Client = MagicMock
+    _genai_types = types.ModuleType("google.genai.types")
+    _genai_types.GenerateContentConfig = MagicMock
     sys.modules["google"] = _google
-    sys.modules["google.generativeai"] = _genai
+    sys.modules["google.genai"] = _genai
+    sys.modules["google.genai.types"] = _genai_types
+    _google.genai = _genai
 
 from modules.ai.gemini_pool import GeminiKeyPool, GeminiPoolExhausted
 from modules.ai.restaurant_scorer import (

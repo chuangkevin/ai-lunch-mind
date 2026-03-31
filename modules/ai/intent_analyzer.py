@@ -12,7 +12,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from modules.ai.gemini_pool import gemini_pool
 from modules.sqlite_cache_manager import get_ai_cache, set_ai_cache
@@ -198,17 +199,16 @@ def _call_gemini(user_message: str, *, api_key=None) -> str:
     透過 gemini_pool 呼叫 Gemini API，回傳原始文字回應。
     使用 @gemini_pool.auto_retry 裝飾器處理暫時性失敗與 key 輪替。
     """
-    # Use per-model api_key to avoid thread-unsafe global genai.configure()
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        generation_config=genai.GenerationConfig(
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=user_message,
+        config=types.GenerateContentConfig(
             temperature=0.1,
             response_mime_type="application/json",
+            system_instruction=_SYSTEM_PROMPT,
         ),
-        system_instruction=_SYSTEM_PROMPT,
-        api_key=api_key,
     )
-    response = model.generate_content(user_message)
     return response.text
 
 

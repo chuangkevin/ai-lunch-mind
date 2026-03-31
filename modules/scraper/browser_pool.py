@@ -167,6 +167,20 @@ class BrowserPool:
         try:
             # Try to get a browser from the pool (3 s timeout)
             driver = self.available_browsers.get(timeout=3)
+
+            # Verify the session is alive before yielding
+            try:
+                driver.title  # simple check that doesn't navigate
+            except Exception:
+                # Session is dead, create a new one
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                driver = create_chrome_driver_fast()
+                with self.lock:
+                    self.all_browsers.append(driver)
+
             yield driver
         except Exception:
             # Pool exhausted -- create a temporary instance

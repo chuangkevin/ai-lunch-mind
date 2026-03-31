@@ -109,7 +109,8 @@ def _extract_restaurant_names(combined_text: str, *, api_key=None) -> List[Dict]
     Returns:
         List of dicts with 'name' and 'snippet' keys.
     """
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 
     prompt = (
         "從以下搜尋結果中提取所有被推薦的餐廳名稱。\n"
@@ -119,13 +120,14 @@ def _extract_restaurant_names(combined_text: str, *, api_key=None) -> List[Dict]
         f"搜尋結果：\n{combined_text}"
     )
 
-    model = genai.GenerativeModel("gemini-2.0-flash-lite", api_key=api_key)
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "max_output_tokens": 1024,
-            "temperature": 0.1,
-        },
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-lite",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=1024,
+            temperature=0.1,
+        ),
     )
 
     # Parse the JSON response

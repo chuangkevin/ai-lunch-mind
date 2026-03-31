@@ -14,7 +14,8 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from modules.ai.gemini_pool import gemini_pool
 
@@ -330,16 +331,15 @@ def _call_gemini_scoring(prompt: str, *, api_key: Optional[str] = None) -> Optio
     The api_key parameter is injected by the auto_retry decorator.
     Returns parsed JSON list or None on failure.
     """
-    # Use per-model api_key to avoid thread-unsafe global genai.configure()
-    model = genai.GenerativeModel(
-        GEMINI_MODEL,
-        generation_config=genai.GenerationConfig(
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=GEMINI_TEMPERATURE,
             response_mime_type="application/json",
         ),
-        api_key=api_key,
     )
-    response = model.generate_content(prompt)
 
     if not response:
         logger.warning("[Scorer] Gemini 回傳空結果")
