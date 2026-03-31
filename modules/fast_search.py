@@ -18,59 +18,41 @@ def calculate_real_distances(
     restaurants: List[Dict],
     user_location: str,
 ) -> List[Dict]:
-    """Calculate real distances using Gemini for address translation + geopy.
+    """Calculate real distances using ArcGIS geocoding + geodesic formula.
 
-    Nominatim doesn't understand Chinese addresses, so we:
-    1. Use Gemini to translate all addresses to English
-    2. Geocode English addresses with Nominatim
-    3. Calculate geodesic distance + walking estimate
+    No AI needed. ArcGIS supports Chinese addresses natively.
     """
     try:
-        from geopy.geocoders import Nominatim
+        from geopy.geocoders import ArcGIS
         from geopy.distance import geodesic
 
-        geolocator = Nominatim(user_agent="ai-lunch-mind", timeout=5)
+        geolocator = ArcGIS(timeout=5)
 
-        # Step 1: Translate all addresses to English via Gemini
-        addresses_to_translate = [user_location]
-        for r in restaurants:
-            addresses_to_translate.append(r.get("address", r.get("name", "")))
-
-        english_addresses = _translate_addresses_to_english(addresses_to_translate)
-        if not english_addresses or len(english_addresses) != len(addresses_to_translate):
-            logger.warning("Address translation failed or mismatch")
-            return restaurants
-
-        # Step 2: Geocode user location
-        user_en = english_addresses[0]
-        user_geo = geolocator.geocode(user_en)
+        # Geocode user location
+        user_geo = geolocator.geocode(user_location)
         if not user_geo:
-            logger.warning("Cannot geocode user location: %s (en: %s)", user_location, user_en)
+            logger.warning("Cannot geocode user location: %s", user_location)
             return restaurants
 
         user_coords = (user_geo.latitude, user_geo.longitude)
-        logger.info("User location: %s -> %s -> %s", user_location, user_en, user_coords)
+        logger.info("User: %s -> (%.4f, %.4f)", user_location, *user_coords)
 
-        # Step 3: Geocode each restaurant and calculate distance
-        for i, r in enumerate(restaurants):
-            rest_en = english_addresses[i + 1] if i + 1 < len(english_addresses) else ""
-            if not rest_en:
-                continue
+        for r in restaurants:
+            addr = r.get("address", "")
+            if not addr or addr.endswith("附近"):
+                addr = r.get("name", "") + " " + user_location
 
             try:
-                rest_geo = geolocator.geocode(rest_en)
+                rest_geo = geolocator.geocode(addr)
                 if rest_geo:
                     rest_coords = (rest_geo.latitude, rest_geo.longitude)
                     dist_km = geodesic(user_coords, rest_coords).kilometers
-                    walking_km = dist_km * 1.3
-                    walking_minutes = round(walking_km / 5 * 60)
+                    walking_km = dist_km * 1.3  # Walking route factor
+                    walking_minutes = round(walking_km / 5 * 60)  # 5 km/h
 
                     r["distance_km"] = round(dist_km, 2)
                     r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
                     r["walking_minutes"] = walking_minutes
-                    logger.info("  %s: %s -> %.2fkm, ~%dmin", r.get("name"), rest_en[:30], dist_km, walking_minutes)
-                else:
-                    logger.warning("  Geocode failed for: %s", rest_en[:40])
             except Exception as e:
                 logger.warning("  Geocode error for %s: %s", r.get("name"), e)
 
@@ -80,44 +62,6 @@ def calculate_real_distances(
         logger.warning("Distance calculation failed: %s", e)
 
     return restaurants
-
-
-def _translate_addresses_to_english(addresses: List[str]) -> Optional[List[str]]:
-    """Use Gemini to translate Chinese addresses to English for geocoding."""
-    from modules.ai.gemini_pool import gemini_pool
-    from google import genai
-    from google.genai import types
-
-    api_key = gemini_pool.get_key()
-    if not api_key:
-        return None
-
-    prompt = f"""Translate these Taiwan addresses to English. Return a JSON array of strings, same order.
-Keep street names romanized (e.g. Dunhua South Road), include district and city.
-
-Addresses:
-{json.dumps(addresses, ensure_ascii=False)}
-
-Return ONLY a JSON array of English address strings, e.g.:
-["No. 77, Section 2, Dunhua South Road, Da'an District, Taipei", ...]"""
-
-    try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                response_mime_type="application/json",
-            ),
-        )
-        result = json.loads(resp.text.strip())
-        if isinstance(result, list) and len(result) == len(addresses):
-            return result
-    except Exception as e:
-        logger.warning("Address translation failed: %s", e)
-
-    return None
 
 
 def search_restaurants_fast(
