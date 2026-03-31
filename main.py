@@ -71,7 +71,7 @@ def weather_page():
 # 新增 AI 午餐推薦頁面路由
 @app.get("/ai_lunch", response_class=HTMLResponse)
 def ai_lunch_page():
-    return FileResponse(os.path.join(STATIC_DIR, "ai_lunch.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "ai_lunch_v2.html"))
 
 # 新增設定頁面路由
 @app.get("/settings", response_class=HTMLResponse)

@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Lunch Mind</title>
+  <style>
+    :root {
+      --bg-primary: #111827;
+      --bg-card: #1f2937;
+      --bg-input: #374151;
+      --border: #374151;
+      --border-active: #6366f1;
+      --accent: #7c3aed;
+      --accent-light: #a78bfa;
+      --text-primary: #f9fafb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --rating: #fbbf24;
+      --success: #6ee7b7;
+      --danger: #ef4444;
+      --pill-green-bg: #064e3b;
+      --pill-purple-bg: #1e1b4b;
+      --pill-social-bg: #4c1d95;
+      --pill-blue-bg: #1e3a5f;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ===== Header ===== */
+    .app-header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .app-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .app-title-accent {
+      color: var(--accent);
+    }
+
+    .location-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: border-color 0.2s;
+      max-width: 300px;
+    }
+
+    .location-pill:hover {
+      border-color: var(--border-active);
+    }
+
+    .location-pill .loc-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .location-pill .loc-source {
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .location-pill .loc-clear {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: none;
+      background: var(--text-muted);
+      color: var(--bg-card);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      transition: background 0.2s;
+    }
+
+    .location-pill .loc-clear:hover {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .location-pill.empty {
+      color: var(--text-muted);
+    }
+
+    .settings-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 16px;
+      transition: border-color 0.2s, color 0.2s;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+    }
+
+    .settings-btn:hover {
+      border-color: var(--border-active);
+      color: var(--text-primary);
+    }
+
+    /* ===== Input Bar ===== */
+    .input-bar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky;
+      top: 53px;
+      z-index: 99;
+    }
+
+    .gps-btn {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-secondary);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .gps-btn:hover {
+      border-color: var(--border-active);
+      color: var(--accent-light);
+    }
+
+    .gps-btn.loading {
+      animation: gpsPulse 1s infinite;
+      border-color: var(--accent);
+      color: var(--accent-light);
+    }
+
+    .gps-btn.located {
+      border-color: #065f46;
+      color: var(--success);
+    }
+
+    @keyframes gpsPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .search-input {
+      flex: 1;
+      height: 42px;
+      padding: 0 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+
+    .submit-btn {
+      flex-shrink: 0;
+      height: 42px;
+      padding: 0 24px;
+      background: linear-gradient(135deg, var(--accent), #6d28d9);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .submit-btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    .submit-btn:active {
+      transform: translateY(0);
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ===== Main Content ===== */
+    .main-content {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    /* ===== Welcome Screen ===== */
+    .welcome-screen {
+      text-align: center;
+      padding: 60px 20px;
+    }
+
+    .welcome-screen h2 {
+      font-size: 22px;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .welcome-screen p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 30px;
+    }
+
+    .quick-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .quick-chip {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 8px 16px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .quick-chip:hover {
+      border-color: var(--accent);
+      color: var(--accent-light);
+      background: rgba(124, 58, 237, 0.1);
+    }
+
+    /* ===== Progress Bar ===== */
+    #progressBar {
+      display: none;
+      padding: 16px 0;
+    }
+
+    .progress-steps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--text-muted);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: transparent;
+      transition: all 0.3s;
+    }
+
+    .step.active .step-dot {
+      border-color: var(--accent);
+      animation: stepPulse 1.2s infinite;
+    }
+
+    .step.done .step-dot {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .step.done .step-dot::after {
+      content: '\2713';
+    }
+
+    @keyframes stepPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(124, 58, 237, 0); }
+    }
+
+    .step-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .step.active .step-label,
+    .step.done .step-label {
+      color: var(--accent-light);
+    }
+
+    .step-line {
+      width: 40px;
+      height: 2px;
+      background: var(--text-muted);
+      margin: 0 4px;
+      margin-bottom: 20px;
+      transition: background 0.3s;
+    }
+
+    .step-line.done {
+      background: var(--accent);
+    }
+
+    .elapsed {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 16px;
+      margin-bottom: 20px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    /* ===== Analysis Summary ===== */
+    #analysisSummary {
+      display: none;
+      padding: 12px 0;
+    }
+
+    .analysis-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .analysis-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .pill-location { background: var(--pill-green-bg); color: var(--success); }
+    .pill-keywords { background: var(--pill-purple-bg); color: #a5b4fc; }
+    .pill-budget { background: var(--pill-purple-bg); color: #a5b4fc; }
+    .pill-temp { background: var(--pill-blue-bg); color: #93c5fd; }
+    .pill-humidity { background: var(--pill-blue-bg); color: #93c5fd; }
+    .pill-sweat { background: var(--pill-blue-bg); color: #93c5fd; }
+    .pill-rain { background: var(--pill-blue-bg); color: #93c5fd; }
+    .pill-rain.warning { background: #7f1d1d; color: #fca5a5; }
+    .pill-distance { background: var(--pill-green-bg); color: var(--success); }
+
+    /* ===== Thinking Message ===== */
+    .thinking-msg {
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+      padding: 4px 0 8px 0;
+      min-height: 24px;
+      display: none;
+    }
+
+    /* ===== Distance Banner ===== */
+    .distance-banner {
+      background: rgba(124, 58, 237, 0.1);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--accent-light);
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    /* ===== Error Banner ===== */
+    .error-banner {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 12px;
+      padding: 16px 20px;
+      text-align: center;
+      color: #fca5a5;
+      font-size: 14px;
+      display: none;
+    }
+
+    .error-banner .error-msg {
+      margin-bottom: 10px;
+    }
+
+    .retry-btn {
+      background: var(--danger);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .retry-btn:hover {
+      opacity: 0.85;
+    }
+
+    /* ===== No Results ===== */
+    .no-results {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-secondary);
+      display: none;
+    }
+
+    .no-results p {
+      margin-bottom: 12px;
+      font-size: 15px;
+    }
+
+    /* ===== Result Grid ===== */
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      padding-bottom: 20px;
+    }
+
+    /* ===== Restaurant Card ===== */
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .restaurant-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      transition: border-color 0.2s;
+      animation: cardIn 0.3s ease-out both;
+    }
+
+    .restaurant-card:hover {
+      border-color: var(--border-active);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .card-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      margin-right: 8px;
+    }
+
+    .card-rating {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--rating);
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    .card-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .card-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .card-pill-distance { background: var(--pill-green-bg); color: var(--success); }
+    .card-pill-price { background: var(--pill-purple-bg); color: #a5b4fc; }
+
+    .card-pill-social {
+      background: var(--pill-social-bg);
+      color: #c4b5fd;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      text-decoration: none;
+    }
+
+    .card-pill-social:hover {
+      opacity: 0.8;
+    }
+
+    .card-address {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .card-ai-reason {
+      font-size: 12px;
+      color: var(--text-secondary);
+      border-left: 3px solid var(--accent);
+      padding: 6px 10px;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .card-action-link {
+      font-size: 12px;
+      color: var(--accent-light);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.2s;
+    }
+
+    .card-action-link:hover {
+      color: var(--accent);
+    }
+
+    /* ===== Summary Footer ===== */
+    #summaryFooter {
+      display: none;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 20px;
+      margin-top: 8px;
+      margin-bottom: 20px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    #summaryFooter .summary-check {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    /* ===== Scrollbar ===== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 768px) {
+      .result-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .step-line {
+        width: 24px;
+      }
+
+      .input-bar {
+        padding: 10px 12px;
+        gap: 8px;
+      }
+
+      .app-header {
+        padding: 10px 12px;
+      }
+
+      .main-content {
+        padding: 12px;
+      }
+
+      .location-pill {
+        max-width: 160px;
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+
+      .submit-btn {
+        padding: 0 16px;
+        font-size: 14px;
+      }
+
+      .welcome-screen {
+        padding: 40px 12px;
+      }
+
+      .welcome-screen h2 {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== Header ===== -->
+  <header class="app-header">
+    <div class="app-title">
+      <span class="app-title-accent">AI</span> &#21320;&#39184;&#25512;&#34214;
+    </div>
+    <div class="location-pill empty" id="locationPill" onclick="promptManualLocation()" title="&#40670;&#25802;&#35373;&#23450;&#20301;&#32622;">
+      <span class="loc-text" id="locationText">&#40670;&#25802;&#35373;&#23450;&#20301;&#32622;</span>
+    </div>
+    <a href="/settings" class="settings-btn" title="&#35373;&#23450;">&#9881;</a>
+  </header>
+
+  <!-- ===== Input Bar ===== -->
+  <div class="input-bar">
+    <button type="button" class="gps-btn" id="gpsBtn" onclick="requestGeolocation()" title="GPS &#23450;&#20301;">&#128205;</button>
+    <input
+      type="text"
+      class="search-input"
+      id="searchInput"
+      placeholder="&#24819;&#21507;&#20160;&#40636;&#65311;&#21320;&#39184;&#12289;&#25289;&#40629;&#12289;200&#20803;&#20197;&#20839;&#30340;&#20415;&#30070;..."
+      autocomplete="off"
+      onkeydown="handleKeyDown(event)"
+    />
+    <button type="button" class="submit-btn" id="submitBtn" onclick="sendMessage()">&#25512;&#34214;</button>
+  </div>
+
+  <!-- ===== Main Content ===== -->
+  <div class="main-content">
+
+    <!-- Welcome -->
+    <div id="welcomeScreen" class="welcome-screen">
+      <h2>&#20170;&#22825;&#24819;&#21507;&#20160;&#40636;&#65311;</h2>
+      <p>&#26681;&#25818;&#20301;&#32622;&#12289;&#22825;&#27683;&#21644;&#20491;&#20154;&#20559;&#22909;&#65292;AI &#26234;&#33021;&#25512;&#34214;&#38468;&#36817;&#39184;&#24307;&#12290;</p>
+      <div class="quick-chips">
+        <div class="quick-chip" onclick="sendQuick('\u6211\u5728\u53f0\u5317\u8eca\u7ad9\uff0c\u60f3\u5403\u62c9\u9eb5')">&#21488;&#21271;&#36554;&#31449;&#25289;&#40629;</div>
+        <div class="quick-chip" onclick="sendQuick('\u6211\u5728\u4fe1\u7fa9\u5340\uff0c\u5929\u6c23\u71b1\u60f3\u5403\u51b0')">&#20449;&#32681;&#21312;&#20912;&#21697;</div>
+        <div class="quick-chip" onclick="sendQuick('\u6211\u5728\u897f\u9580\u753a\uff0c\u627e\u71d2\u70e4\u5e97')">&#35199;&#38272;&#30010;&#29138;&#28900;</div>
+        <div class="quick-chip" onclick="sendQuick('\u6211\u5728\u4e2d\u5c71\u5340\uff0c\u60f3\u5403\u7fa9\u5927\u5229\u9eb5')">&#20013;&#23665;&#21312;&#32681;&#22823;&#21033;&#40629;</div>
+        <div class="quick-chip" onclick="sendQuick('\u6211\u5728\u53f0\u5317101\u9644\u8fd1')">&#26681;&#25818;&#26178;&#38291;&#25512;&#34214;</div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progressBar">
+      <div class="progress-steps">
+        <div class="step" id="step-intent" data-label="&#24847;&#22294;&#20998;&#26512;">
+          <div class="step-dot"></div>
+          <span class="step-label">&#24847;&#22294;</span>
+        </div>
+        <div class="step-line" id="line-1"></div>
+        <div class="step" id="step-weather" data-label="&#22825;&#27683;&#26597;&#35426;">
+          <div class="step-dot"></div>
+          <span class="step-label">&#22825;&#27683;</span>
+        </div>
+        <div class="step-line" id="line-2"></div>
+        <div class="step" id="step-search" data-label="&#39184;&#24307;&#25628;&#23563;">
+          <div class="step-dot"></div>
+          <span class="step-label">&#25628;&#23563;</span>
+        </div>
+        <div class="step-line" id="line-3"></div>
+        <div class="step" id="step-score" data-label="&#35413;&#20998;&#25490;&#24207;">
+          <div class="step-dot"></div>
+          <span class="step-label">&#25490;&#24207;</span>
+        </div>
+        <span id="elapsedTime" class="elapsed">0.0s</span>
+      </div>
+    </div>
+
+    <!-- Thinking message -->
+    <div class="thinking-msg" id="thinkingMsg"></div>
+
+    <!-- Analysis Summary -->
+    <div id="analysisSummary">
+      <div class="analysis-pills" id="analysisPills"></div>
+    </div>
+
+    <!-- Distance expanded banner -->
+    <div class="distance-banner" id="distanceBanner"></div>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="errorBanner">
+      <div class="error-msg" id="errorMsg"></div>
+      <button type="button" class="retry-btn" onclick="retryLastSearch()">&#37325;&#35430;</button>
+    </div>
+
+    <!-- No Results -->
+    <div class="no-results" id="noResults">
+      <p>&#38468;&#36817;&#27794;&#26377;&#31526;&#21512;&#30340;&#39184;&#24307;&#65292;&#35430;&#35430;&#25563;&#20491;&#38364;&#37749;&#23383;</p>
+      <button type="button" class="retry-btn" onclick="retryLastSearch()">&#37325;&#35430;</button>
+    </div>
+
+    <!-- Result Grid -->
+    <div class="result-grid" id="resultGrid"></div>
+
+    <!-- Summary Footer -->
+    <div id="summaryFooter"></div>
+  </div>
+
+  <script>
+    // ===================================================================
+    // State
+    // ===================================================================
+    var userCoords = null; // { lat, lng, address, source: 'gps'|'manual'|'chat' }
+    var lastMessage = '';
+    var searchStartTime = null;
+    var elapsedTimer = null;
+    var currentEventSource = null;
+    var cardIndex = 0;
+
+    // DOM references
+    var searchInput   = document.getElementById('searchInput');
+    var submitBtn     = document.getElementById('submitBtn');
+    var gpsBtn        = document.getElementById('gpsBtn');
+    var locationPill  = document.getElementById('locationPill');
+    var locationText  = document.getElementById('locationText');
+    var progressBar   = document.getElementById('progressBar');
+    var analysisSummary = document.getElementById('analysisSummary');
+    var analysisPills = document.getElementById('analysisPills');
+    var resultGrid    = document.getElementById('resultGrid');
+    var summaryFooter = document.getElementById('summaryFooter');
+    var welcomeScreen = document.getElementById('welcomeScreen');
+    var errorBanner   = document.getElementById('errorBanner');
+    var errorMsg      = document.getElementById('errorMsg');
+    var noResults     = document.getElementById('noResults');
+    var distanceBanner= document.getElementById('distanceBanner');
+    var thinkingMsg   = document.getElementById('thinkingMsg');
+    var elapsedTimeEl = document.getElementById('elapsedTime');
+
+    // ===================================================================
+    // Location Management
+    // ===================================================================
+
+    // Restore manual location from localStorage on page load
+    (function() {
+      var saved = localStorage.getItem('manual_location');
+      if (saved) {
+        userCoords = { lat: null, lng: null, address: saved, source: 'manual' };
+      }
+    })();
+
+    function setLocation(address, source, lat, lng) {
+      userCoords = { lat: lat || null, lng: lng || null, address: address, source: source };
+      if (source === 'manual' || source === 'chat') {
+        localStorage.setItem('manual_location', address);
+      }
+      renderLocationPill();
+    }
+
+    function renderLocationPill() {
+      if (!userCoords) {
+        locationPill.classList.add('empty');
+        locationPill.innerHTML = '<span class="loc-text" id="locationText">\u9ede\u64ca\u8a2d\u5b9a\u4f4d\u7f6e</span>';
+        return;
+      }
+      locationPill.classList.remove('empty');
+      var sourceLabel = userCoords.source === 'gps' ? 'GPS'
+                      : userCoords.source === 'chat' ? '\u5c0d\u8a71'
+                      : '\u624b\u52d5';
+      locationPill.innerHTML =
+        '<span class="loc-text" id="locationText" title="' + esc(userCoords.address) + '">' + esc(userCoords.address) + '</span>' +
+        '<span class="loc-source">(' + sourceLabel + ')</span>' +
+        '<button class="loc-clear" onclick="event.stopPropagation(); clearLocation();" title="\u6e05\u9664\u4f4d\u7f6e">&times;</button>';
+    }
+
+    function clearLocation() {
+      userCoords = null;
+      localStorage.removeItem('manual_location');
+      gpsBtn.classList.remove('located');
+      renderLocationPill();
+    }
+
+    function promptManualLocation() {
+      var addr = prompt('\u8acb\u8f38\u5165\u60a8\u7684\u4f4d\u7f6e\uff08\u5730\u6a19\u3001\u5730\u5740\u6216\u8def\u53e3\uff09\uff1a', userCoords ? userCoords.address : '');
+      if (addr && addr.trim()) {
+        setLocation(addr.trim(), 'manual');
+      }
+    }
+
+    // Detect "我在XXX" or "XXX附近" in user message
+    function extractLocationFromMessage(msg) {
+      var atMatch = msg.match(/\u6211\u5728([^\s\uff0c\u3002\uff01\uff1f,]{2,20})/);
+      if (atMatch) return atMatch[1];
+      var nearMatch = msg.match(/([^\s\uff0c\u3002\uff01\uff1f,]{2,15})\u9644\u8fd1/);
+      if (nearMatch) return nearMatch[1];
+      return null;
+    }
+
+    function requestGeolocation() {
+      if (!navigator.geolocation) {
+        alert('\u60a8\u7684\u700f\u89bd\u5668\u4e0d\u652f\u63f4\u5b9a\u4f4d\u529f\u80fd\uff0c\u8acb\u624b\u52d5\u8f38\u5165\u4f4d\u7f6e\u3002');
+        return;
+      }
+      gpsBtn.classList.add('loading');
+
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          var lat = pos.coords.latitude;
+          var lng = pos.coords.longitude;
+          var address = lat.toFixed(5) + ',' + lng.toFixed(5);
+
+          // Reverse geocode via Nominatim
+          fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=zh-TW&zoom=18')
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
+              if (data.address) {
+                var a = data.address;
+                var parts = [a.road, a.neighbourhood, a.suburb || a.city_district, a.city || a.county].filter(Boolean);
+                address = parts.join(', ') || data.display_name;
+              }
+            })
+            .catch(function(e) { console.warn('Reverse geocode failed', e); })
+            .finally(function() {
+              gpsBtn.classList.remove('loading');
+              gpsBtn.classList.add('located');
+              setLocation(address, 'gps', lat, lng);
+            });
+        },
+        function(err) {
+          gpsBtn.classList.remove('loading');
+          var msg = '\u5b9a\u4f4d\u5931\u6557\u3002';
+          if (err.code === 1) msg = '\u60a8\u62d2\u7d55\u4e86\u5b9a\u4f4d\u6b0a\u9650\u3002';
+          else if (err.code === 2) msg = '\u7121\u6cd5\u53d6\u5f97\u4f4d\u7f6e\u8cc7\u8a0a\u3002';
+          else if (err.code === 3) msg = '\u5b9a\u4f4d\u8d85\u6642\u3002';
+          alert(msg + ' \u8acb\u9ede\u64ca\u4e0a\u65b9\u4f4d\u7f6e\u5713\u9328\u624b\u52d5\u8a2d\u5b9a\u3002');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    }
+
+    // ===================================================================
+    // Utilities
+    // ===================================================================
+
+    function esc(str) {
+      if (!str) return '';
+      var d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function startElapsedTimer() {
+      searchStartTime = performance.now();
+      elapsedTimeEl.textContent = '0.0s';
+      elapsedTimer = setInterval(function() {
+        elapsedTimeEl.textContent = ((performance.now() - searchStartTime) / 1000).toFixed(1) + 's';
+      }, 100);
+    }
+
+    function stopElapsedTimer() {
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+    }
+
+    // ===================================================================
+    // Progress Bar
+    // ===================================================================
+
+    var stepOrder = ['intent', 'weather', 'search', 'score'];
+    var lineIds   = [null, 'line-1', 'line-2', 'line-3']; // lineIds[i] = line BEFORE stepOrder[i]
+
+    function resetProgress() {
+      stepOrder.forEach(function(s) {
+        var el = document.getElementById('step-' + s);
+        el.classList.remove('active', 'done');
+      });
+      ['line-1', 'line-2', 'line-3'].forEach(function(id) {
+        document.getElementById(id).classList.remove('done');
+      });
+      elapsedTimeEl.textContent = '0.0s';
+    }
+
+    function setStepActive(name) {
+      var idx = stepOrder.indexOf(name);
+      if (idx < 0) return;
+      // Mark all previous steps as done + their connecting lines
+      for (var i = 0; i < idx; i++) {
+        var el = document.getElementById('step-' + stepOrder[i]);
+        el.classList.remove('active');
+        el.classList.add('done');
+      }
+      // Mark connecting lines up to and including the line before the active step
+      for (var j = 1; j <= idx; j++) {
+        if (lineIds[j]) document.getElementById(lineIds[j]).classList.add('done');
+      }
+      // Set current as active
+      var cur = document.getElementById('step-' + name);
+      cur.classList.remove('done');
+      cur.classList.add('active');
+    }
+
+    function setStepDone(name) {
+      var el = document.getElementById('step-' + name);
+      el.classList.remove('active');
+      el.classList.add('done');
+      // Mark the next connecting line
+      var idx = stepOrder.indexOf(name);
+      if (idx >= 0 && idx < stepOrder.length - 1 && lineIds[idx + 1]) {
+        document.getElementById(lineIds[idx + 1]).classList.add('done');
+      }
+    }
+
+    function setAllStepsDone() {
+      stepOrder.forEach(function(s) {
+        var el = document.getElementById('step-' + s);
+        el.classList.remove('active');
+        el.classList.add('done');
+      });
+      ['line-1', 'line-2', 'line-3'].forEach(function(id) {
+        document.getElementById(id).classList.add('done');
+      });
+    }
+
+    // ===================================================================
+    // Restaurant Card Builder
+    // ===================================================================
+
+    function buildCard(r, index) {
+      var card = document.createElement('div');
+      card.className = 'restaurant-card';
+      card.style.animationDelay = (index * 0.1) + 's';
+
+      // --- Rating badge ---
+      var ratingHtml = '';
+      if (r.rating) {
+        ratingHtml = '<div class="card-rating">&#9733; ' + esc(String(r.rating)) + '</div>';
+      }
+
+      // --- Subtitle: food type + district ---
+      var subParts = [];
+      if (r.food_type) subParts.push(esc(r.food_type));
+      if (r.district) subParts.push(esc(r.district));
+      var subtitle = subParts.join(' \u00b7 ');
+
+      // --- Info pills ---
+      var pills = '';
+
+      // Distance
+      if (r.walking_minutes || r.walking_distance) {
+        var dt = '';
+        if (r.walking_minutes) dt += r.walking_minutes + '\u5206';
+        if (r.walking_distance) dt += (dt ? ' (' : '') + r.walking_distance + (dt ? ')' : '');
+        pills += '<span class="card-pill card-pill-distance">\ud83d\udeb6 ' + esc(dt) + '</span>';
+      } else if (r.distance_km !== undefined && r.distance_km !== null && r.distance_km > 0) {
+        pills += '<span class="card-pill card-pill-distance">\ud83d\udeb6 ' + esc(String(r.distance_km)) + 'km</span>';
+      } else if (r.address) {
+        // Distance unknown: show "地址已知"
+        pills += '<span class="card-pill card-pill-distance">\ud83d\udccd \u5730\u5740\u5df2\u77e5</span>';
+      }
+
+      // Price — hide entirely if no data
+      if (r.price_level) {
+        pills += '<span class="card-pill card-pill-price">\ud83d\udcb0 ' + esc(r.price_level) + '</span>';
+      } else if (r.estimated_price) {
+        pills += '<span class="card-pill card-pill-price">\ud83d\udcb0 ~$' + esc(String(r.estimated_price)) + '</span>';
+      }
+
+      // Social proof pills (clickable, with platform names)
+      if (r.social_proof) {
+        var sp = r.social_proof;
+        if (sp.platforms && sp.platforms.length > 0) {
+          sp.platforms.forEach(function(platform, pi) {
+            var url = '';
+            if (sp.mentions && sp.mentions.length > 0) {
+              // Try matching by index, then by platform name
+              if (sp.mentions[pi] && sp.mentions[pi].url) {
+                url = sp.mentions[pi].url;
+              } else {
+                for (var k = 0; k < sp.mentions.length; k++) {
+                  if (sp.mentions[k].platform === platform && sp.mentions[k].url) {
+                    url = sp.mentions[k].url;
+                    break;
+                  }
+                }
+              }
+            }
+            if (url) {
+              pills += '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="card-pill card-pill-social">\ud83d\udd25 ' + esc(platform) + '</a>';
+            } else {
+              pills += '<span class="card-pill card-pill-social">\ud83d\udd25 ' + esc(platform) + '</span>';
+            }
+          });
+        }
+      }
+
+      // --- Address ---
+      var addrHtml = '';
+      if (r.address) {
+        addrHtml = '<div class="card-address"><span>\ud83d\udccd</span><span>' + esc(r.address) + '</span></div>';
+      }
+
+      // --- AI reason ---
+      var reasonHtml = '';
+      if (r.ai_reason) {
+        reasonHtml = '<div class="card-ai-reason">' + esc(r.ai_reason) + '</div>';
+      }
+
+      // --- Action links ---
+      var dest = encodeURIComponent((r.name || '') + ' ' + (r.address || ''));
+      var walkLink;
+      if (userCoords && userCoords.address) {
+        var origin = encodeURIComponent(userCoords.address);
+        walkLink = 'https://www.google.com/maps/dir/?api=1&origin=' + origin + '&destination=' + dest + '&travelmode=walking';
+      } else {
+        walkLink = 'https://www.google.com/maps/dir/?api=1&destination=' + dest + '&travelmode=walking';
+      }
+      var mapsLink = 'https://www.google.com/maps/search/?api=1&query=' + dest;
+
+      card.innerHTML =
+        '<div class="card-header">' +
+          '<div class="card-name" title="' + esc(r.name || '') + '">' + esc(r.name || '') + '</div>' +
+          ratingHtml +
+        '</div>' +
+        (subtitle ? '<div class="card-subtitle">' + subtitle + '</div>' : '') +
+        (pills ? '<div class="card-pills">' + pills + '</div>' : '') +
+        addrHtml +
+        reasonHtml +
+        '<div class="card-actions">' +
+          '<a href="' + esc(walkLink) + '" target="_blank" rel="noopener" class="card-action-link">\ud83d\udeb6 \u6b65\u884c\u5c0e\u822a</a>' +
+          '<a href="' + esc(mapsLink) + '" target="_blank" rel="noopener" class="card-action-link">\ud83d\uddfa\ufe0f Google Maps</a>' +
+        '</div>';
+
+      return card;
+    }
+
+    // ===================================================================
+    // Search — SSE
+    // ===================================================================
+
+    function resetUI() {
+      welcomeScreen.style.display = 'none';
+      progressBar.style.display = 'block';
+      analysisSummary.style.display = 'none';
+      analysisPills.innerHTML = '';
+      resultGrid.innerHTML = '';
+      summaryFooter.style.display = 'none';
+      summaryFooter.innerHTML = '';
+      errorBanner.style.display = 'none';
+      noResults.style.display = 'none';
+      distanceBanner.style.display = 'none';
+      thinkingMsg.style.display = 'none';
+      thinkingMsg.textContent = '';
+      cardIndex = 0;
+      resetProgress();
+    }
+
+    function sendQuick(msg) {
+      searchInput.value = msg;
+      sendMessage();
+    }
+
+    function retryLastSearch() {
+      if (lastMessage) {
+        searchInput.value = lastMessage;
+        sendMessage();
+      }
+    }
+
+    function sendMessage() {
+      var message = searchInput.value.trim();
+      if (!message) return;
+
+      // Close any existing connection
+      if (currentEventSource) {
+        currentEventSource.close();
+        currentEventSource = null;
+      }
+      stopElapsedTimer();
+
+      lastMessage = message;
+
+      // Location priority: 1) chat mention  2) manual/GPS saved  3) nothing
+      var fullMessage = message;
+      var chatLocation = extractLocationFromMessage(message);
+      if (chatLocation) {
+        setLocation(chatLocation, 'chat');
+      } else if (userCoords) {
+        // Auto-inject saved location
+        fullMessage = '\u6211\u5728' + userCoords.address + '\uff0c' + message;
+      }
+
+      searchInput.value = '';
+      submitBtn.disabled = true;
+
+      resetUI();
+      startElapsedTimer();
+      setStepActive('intent');
+
+      // Open SSE
+      var url = '/chat-recommendation-stream?message=' + encodeURIComponent(fullMessage);
+      var es = new EventSource(url);
+      currentEventSource = es;
+
+      var intentReceived = false;
+      var weatherReceived = false;
+
+      // --- thinking ---
+      es.addEventListener('thinking', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          thinkingMsg.style.display = 'block';
+          thinkingMsg.textContent = data.message || '';
+
+          // Infer active step from message content
+          var m = (data.message || '').toLowerCase();
+          if (m.indexOf('score') >= 0 || m.indexOf('rank') >= 0 || m.indexOf('enrich') >= 0 || m.indexOf('distance') >= 0 || m.indexOf('\u8a55\u5206') >= 0 || m.indexOf('\u6392\u5e8f') >= 0) {
+            setStepActive('score');
+          } else if (m.indexOf('search') >= 0 || m.indexOf('restaurant') >= 0 || m.indexOf('\u641c\u5c0b') >= 0 || m.indexOf('\u641c\u5c0b') >= 0 || m.indexOf('\u9910\u5ef3') >= 0) {
+            setStepActive('search');
+          } else if (m.indexOf('weather') >= 0 || m.indexOf('\u5929\u6c23') >= 0) {
+            if (!weatherReceived) setStepActive('weather');
+          } else if (!intentReceived) {
+            setStepActive('intent');
+          }
+        } catch (err) { /* ignore */ }
+      });
+
+      // --- intent ---
+      es.addEventListener('intent', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          intentReceived = true;
+          setStepDone('intent');
+          setStepActive('weather');
+
+          analysisSummary.style.display = 'block';
+          var html = '';
+          if (data.location) {
+            html += '<span class="analysis-pill pill-location">\ud83d\udccd ' + esc(data.location) + '</span>';
+          }
+          if (data.keywords && data.keywords.length > 0) {
+            html += '<span class="analysis-pill pill-keywords">\ud83d\udd11 ' + esc(data.keywords.join(', ')) + '</span>';
+          }
+          if (data.budget && data.budget.max) {
+            html += '<span class="analysis-pill pill-budget">\ud83d\udcb0 ' + esc(String(data.budget.max)) + '\u5143\u4ee5\u5167</span>';
+          }
+          analysisPills.innerHTML = html;
+        } catch (err) { /* ignore */ }
+      });
+
+      // --- weather ---
+      es.addEventListener('weather', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          weatherReceived = true;
+          setStepDone('weather');
+          setStepActive('search');
+
+          analysisSummary.style.display = 'block';
+          var html = analysisPills.innerHTML;
+
+          if (data.temperature !== null && data.temperature !== undefined) {
+            html += '<span class="analysis-pill pill-temp">\ud83c\udf21\ufe0f ' + data.temperature + '\u00b0C</span>';
+          }
+          if (data.humidity !== null && data.humidity !== undefined) {
+            html += '<span class="analysis-pill pill-humidity">\ud83d\udca7 ' + data.humidity + '%</span>';
+          }
+          if (data.sweat_index !== null && data.sweat_index !== undefined) {
+            html += '<span class="analysis-pill pill-sweat">\ud83d\ude25 ' + data.sweat_index + '/10</span>';
+          }
+          if (data.rain_probability !== null && data.rain_probability !== undefined) {
+            var rain = data.rain_probability;
+            if (rain >= 50) {
+              html += '<span class="analysis-pill pill-rain warning">\u2614 ' + rain + '% \u8a18\u5f97\u5e36\u5098\uff01</span>';
+            } else {
+              html += '<span class="analysis-pill pill-rain">\u2614 ' + rain + '%</span>';
+            }
+          }
+          analysisPills.innerHTML = html;
+        } catch (err) { /* ignore */ }
+      });
+
+      // --- analysis (distance info) ---
+      es.addEventListener('analysis', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          analysisSummary.style.display = 'block';
+          var html = analysisPills.innerHTML;
+          if (data.distance_reason) {
+            html += '<span class="analysis-pill pill-distance">\ud83d\udccf ' + esc(data.distance_reason) + '</span>';
+          } else if (data.max_distance) {
+            html += '<span class="analysis-pill pill-distance">\ud83d\udccf ' + esc(String(data.max_distance)) + 'm</span>';
+          }
+          analysisPills.innerHTML = html;
+
+          if (data.expanded || data.distance_expanded) {
+            distanceBanner.textContent = data.distance_reason || '800m \u5167\u6c92\u6709\u7d50\u679c\uff0c\u986f\u793a\u6700\u8fd1\u7684\u9910\u5ef3';
+            distanceBanner.style.display = 'block';
+          }
+        } catch (err) { /* ignore */ }
+      });
+
+      // --- restaurant (one card at a time) ---
+      es.addEventListener('restaurant', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          setStepActive('score');
+
+          var restaurant = data.restaurant || data;
+          var card = buildCard(restaurant, cardIndex);
+          resultGrid.appendChild(card);
+          cardIndex++;
+
+          // Smooth scroll to new card
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (err) { /* ignore */ }
+      });
+
+      // --- done ---
+      es.addEventListener('done', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          stopElapsedTimer();
+          setAllStepsDone();
+          thinkingMsg.style.display = 'none';
+
+          var total = data.total || cardIndex;
+
+          if (total === 0) {
+            noResults.style.display = 'block';
+          } else {
+            var timing = '';
+            if (data.timing && data.timing.total) {
+              timing = ' \u00b7 ' + data.timing.total.toFixed(1) + '\u79d2';
+            } else if (searchStartTime) {
+              timing = ' \u00b7 ' + ((performance.now() - searchStartTime) / 1000).toFixed(1) + '\u79d2';
+            }
+
+            var expandedInfo = '';
+            if (data.distance_expanded || data.expanded) {
+              var reason = data.distance_reason || data.expanded_reason || '';
+              if (reason) {
+                expandedInfo = ' \u00b7 ' + esc(reason);
+                distanceBanner.textContent = reason;
+                distanceBanner.style.display = 'block';
+              }
+            }
+
+            summaryFooter.innerHTML = '<span class="summary-check">\u2713</span> \u5171\u63a8\u85a6 ' + total + ' \u9593\u9910\u5ef3' + timing + expandedInfo;
+            summaryFooter.style.display = 'block';
+          }
+        } catch (err) { /* ignore */ }
+
+        submitBtn.disabled = false;
+        searchInput.focus();
+        es.close();
+        currentEventSource = null;
+      });
+
+      // --- error (SSE named event) ---
+      es.addEventListener('error', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          stopElapsedTimer();
+          thinkingMsg.style.display = 'none';
+          errorMsg.textContent = data.message || '\u641c\u5c0b\u5931\u6557\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002';
+          errorBanner.style.display = 'block';
+        } catch (_) {
+          // Not a JSON error event — could be connection loss handled by onerror
+          // Do nothing here, let onerror handle it
+        }
+        submitBtn.disabled = false;
+        searchInput.focus();
+        es.close();
+        currentEventSource = null;
+      });
+
+      // --- onerror (connection level) ---
+      es.onerror = function() {
+        if (es.readyState === EventSource.CLOSED) return;
+        stopElapsedTimer();
+        thinkingMsg.style.display = 'none';
+
+        if (cardIndex === 0) {
+          errorMsg.textContent = '\u9023\u7dda\u4e2d\u65b7\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66';
+          errorBanner.style.display = 'block';
+        } else {
+          // Partial results — show what we have
+          var elapsed = searchStartTime ? ((performance.now() - searchStartTime) / 1000).toFixed(1) : '?';
+          summaryFooter.innerHTML = '<span class="summary-check">\u2713</span> \u5171\u63a8\u85a6 ' + cardIndex + ' \u9593\u9184\u5ef3 \u00b7 ' + elapsed + '\u79d2 (\u90e8\u5206\u7d50\u679c)';
+          summaryFooter.style.display = 'block';
+        }
+
+        submitBtn.disabled = false;
+        searchInput.focus();
+        es.close();
+        currentEventSource = null;
+      };
+    }
+
+    // ===================================================================
+    // Key handling
+    // ===================================================================
+
+    function handleKeyDown(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+
+    // ===================================================================
+    // Initialization
+    // ===================================================================
+
+    window.addEventListener('load', function() {
+      searchInput.focus();
+
+      if (userCoords) {
+        renderLocationPill();
+      }
+
+      // Auto-request GPS on first visit only if no manual location saved
+      setTimeout(function() {
+        if (!userCoords && !localStorage.getItem('manual_location') && navigator.geolocation) {
+          requestGeolocation();
+        }
+      }, 1500);
+    });
+  </script>
+</body>
+</html>
