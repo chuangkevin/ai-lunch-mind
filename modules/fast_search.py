@@ -28,8 +28,17 @@ def calculate_real_distances(
 
         geolocator = ArcGIS(timeout=5)
 
-        # Geocode user location
-        user_geo = geolocator.geocode(user_location)
+        # Geocode user location — try multiple formats
+        user_geo = None
+        for variant in [
+            user_location,
+            user_location + " 台灣",
+            user_location.replace("科大", "科技大學").replace("大學", "大學 台灣"),
+            user_location + " Taiwan",
+        ]:
+            user_geo = geolocator.geocode(variant)
+            if user_geo:
+                break
         if not user_geo:
             logger.warning("Cannot geocode user location: %s", user_location)
             return restaurants
