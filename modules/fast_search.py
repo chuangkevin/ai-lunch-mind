@@ -40,10 +40,13 @@ def calculate_real_distances(
         for r in restaurants:
             addr = r.get("address", "")
 
-            # Skip if address is just "附近" — geocoding restaurant name is unreliable
+            # Skip if address is just "附近"
             if not addr or addr.endswith("附近"):
-                # Try using restaurant name as search term
-                addr = r.get("name", "") + " 台北"
+                addr = r.get("name", "") + " " + user_location
+
+            # If address is short (just road name, no city/district), prepend user location for context
+            if addr and not re.search(r'[市縣區鎮鄉]', addr):
+                addr = user_location + " " + addr
 
             try:
                 rest_geo = geolocator.geocode(addr)
@@ -95,14 +98,14 @@ def search_restaurants_fast(
         maps_url = f"https://www.google.com/maps/search/{encoded}"
 
         with browser_pool.get_browser() as driver:
-            driver.set_page_load_timeout(5)
+            driver.set_page_load_timeout(8)
 
             try:
                 driver.get(maps_url)
             except Exception:
                 pass  # Timeout is OK, we parse what loaded
 
-            time.sleep(1.5)  # Wait for results to render
+            time.sleep(3)  # Wait for results to render
 
             # Parse restaurant results from Google Maps
             # Google Maps results are in divs with role="feed" > div elements
@@ -130,41 +133,52 @@ def search_restaurants_fast(
                         if not name or len(name) < 2:
                             continue
 
-                        # Extract rating from nearby elements
+                        # Parse all info from parent text
+                        # Format: "Name\n4.6\n餐廳 ·  · 明志路一段13號\n營業中 · 打烊時間：20:50"
                         rating = None
-                        try:
-                            parent = div.find_element(By.XPATH, './..')
-                            rating_text = parent.text
-                            rating_match = re.search(r'(\d\.\d)', rating_text)
-                            if rating_match:
-                                rating = float(rating_match.group(1))
-                        except Exception:
-                            pass
-
-                        # Extract address - look for text that looks like an address
                         address = f"{location}附近"
+                        price_level = None
+                        food_category = ""
+
                         try:
                             parent = div.find_element(By.XPATH, './..')
-                            text = parent.text
-                            # Look for address patterns (contains 路/街/巷/號)
-                            for line in text.split('\n'):
-                                if re.search(r'[路街巷號]', line) and '·' not in line:
-                                    address = line.strip()
-                                    break
-                        except Exception:
-                            pass
+                            lines = parent.text.split('\n')
 
-                        # Extract price level
-                        price_level = None
-                        try:
-                            parent_text = div.find_element(By.XPATH, './..').text
-                            price_match = re.search(r'(\$+)', parent_text)
-                            if price_match:
-                                dollars = len(price_match.group(1))
-                                price_map = {1: '$50-150', 2: '$150-400', 3: '$400-800', 4: '$800+'}
-                                price_level = price_map.get(dollars, '')
-                        except Exception:
-                            pass
+                            for line in lines:
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                # Rating: standalone number like "4.6"
+                                if not rating and re.match(r'^\d\.\d$', line):
+                                    rating = float(line)
+                                    continue
+
+                                # Category + address line: "餐廳 ·  · 明志路一段13號"
+                                if '·' in line and re.search(r'[路街巷號]', line):
+                                    parts = line.split('·')
+                                    for part in parts:
+                                        part = part.strip()
+                                        if re.search(r'[路街巷號]', part):
+                                            address = part
+                                        elif part and not re.search(r'[$＄]', part):
+                                            food_category = part
+                                    continue
+
+                                # Pure address line (no ·): "明志路一段13號"
+                                if re.search(r'[路街巷號]\S{0,5}$', line) and '·' not in line and '營業' not in line:
+                                    address = line
+                                    continue
+
+                                # Price: "$" or "$$"
+                                price_match = re.search(r'(\$+|＄+)', line)
+                                if price_match and not price_level:
+                                    dollars = len(price_match.group(1))
+                                    price_map = {1: '$50-150', 2: '$150-400', 3: '$400-800', 4: '$800+'}
+                                    price_level = price_map.get(dollars)
+
+                        except Exception as e:
+                            logger.warning("Failed to parse parent text: %s", e)
 
                         restaurants.append({
                             'name': name,
