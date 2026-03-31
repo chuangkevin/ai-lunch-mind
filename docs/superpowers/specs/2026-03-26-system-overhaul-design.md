@@ -379,31 +379,39 @@ New fields in recommendation API response:
 
 The original design used Selenium for Google Maps search. Live testing revealed this was too slow (30s+ timeout). The architecture was revised:
 
-**Search pipeline (before):** Selenium Google Maps → parse HTML → extract restaurants
-**Search pipeline (after):** googlesearch-python HTTP → Gemini enrichment → geopy distance
+**Search pipeline (final):** Selenium headless Google Maps → parse real data → ArcGIS geocode distance → Gemini enrich (reason only) → SSE stream
 
-**SSE Streaming:** Added Server-Sent Events endpoint (`/chat-recommendation-stream`) that streams each phase to the frontend in real-time:
-1. Intent analysis (Gemini) → show AI analysis bubble
-2. Weather/sweat index → show distance reasoning
-3. Google HTTP search → find real restaurants
-4. Gemini enrichment → add ratings, prices, reasons
-5. Geopy distance calculation → real walking distance
-6. Social media search (Dcard/Threads/PTT) → community mentions
-7. Stream restaurant cards one by one
+**Key principle:** Gemini NEVER generates restaurants. It only enriches real Google Maps data with reasons and filters non-restaurants. All restaurant names, addresses, ratings, and Maps URLs come from Google Maps.
+
+**SSE Streaming:** `/chat-recommendation-stream` streams each phase in real-time:
+1. Intent analysis (Gemini) → AI analysis bubble (location, keywords, budget)
+2. Weather/sweat index + rain probability → distance reasoning
+3. Selenium Google Maps search → real restaurant data (name, address, rating, price)
+4. Gemini enrichment → add recommendation reasons + filter non-restaurants
+5. ArcGIS geocode + geodesic distance → real walking distance/time
+6. Social media search via Selenium (Dcard/PTT) → community mentions
+7. Stream restaurant cards one by one, sorted by distance
+
+**Distance limits (per user feedback):**
+- Good weather: max 800m (10 min walk)
+- High sweat (>=7) or rain (>=50%): max 400m (5 min walk)
+- Moderate: max 600m (8 min walk)
 
 | Component | File(s) | Status | Tests |
 |-----------|---------|--------|-------|
 | Gemini API Key Pool | `modules/ai/gemini_pool.py` | Done | 10 tests |
 | Intent Analyzer | `modules/ai/intent_analyzer.py` | Done | 6 tests |
 | Restaurant Scorer | `modules/ai/restaurant_scorer.py` | Done | 19 tests |
-| Fast Search (HTTP) | `modules/fast_search.py` | Done | - |
-| Social Media Search | `modules/fast_search.py` | Done | - |
-| Real Distance (geopy) | `modules/fast_search.py` | Done | - |
+| Fast Search (Selenium) | `modules/fast_search.py` | Done | - |
+| Gemini Enrichment | `modules/fast_search.py` | Done | - |
+| Real Distance (ArcGIS+geodesic) | `modules/fast_search.py` | Done | - |
+| Social Media Search (Selenium) | `modules/fast_search.py` | Done | - |
 | SSE Streaming | `main.py` | Done | - |
 | Browser Geolocation | `frontend/ai_lunch.html` | Done | - |
 | 3-Tier Location | `frontend/ai_lunch.html` | Done | - |
 | Walking Directions | `frontend/ai_lunch.html` | Done | - |
 | Settings Page | `frontend/settings.html` | Done | - |
+| Lazy Browser Pool | `modules/scraper/browser_pool.py` | Done | - |
 | Integration Tests | `test_system_overhaul.py` | 43/43 pass | - |
 
 ### Bugs Found & Fixed During Live Testing (2026-03-31)
@@ -415,7 +423,13 @@ The original design used Selenium for Google Maps search. Live testing revealed 
 | Server hang on search | Sync endpoint blocks uvicorn event loop | `async def` + `run_in_executor` + 30s timeout |
 | Search query nonsensical | Raw user message passed as Maps query | AI-extracted clean location used instead |
 | Chrome window pops up | Old browser_pool.py had no `--headless` | Forced headless on all paths |
-| 30s timeout on search | Selenium too slow for real-time UX | Replaced with HTTP search + Gemini enrichment |
-| Walking distance wrong | Gemini hallucinated 5min/400m for 56min/3.8km | Real geopy geocoding + geodesic distance |
+| 30s timeout on search | Selenium too slow (6 Chrome instances on import) | Lazy browser pool (2 instances, on-demand) |
+| Walking distance wrong | Gemini hallucinated 5min/400m for 56min/3.8km | ArcGIS geocoding + geodesic formula |
+| Fake restaurants | Gemini generated hallucinated restaurant names+addresses | Deleted Gemini restaurant generation code entirely |
+| Non-restaurant results | Google Maps returned buildings/offices | Gemini enrichment filters with "remove" flag |
+| Distance not showing | Short location names (科大) failed ArcGIS geocode | Multi-variant geocode fallback (科大→科技大學) |
+| 0m fake distance | Geocode hit same point for "附近" addresses | Skip results < 30m |
+| No rain probability | SSE weather event missing rain data | Added rain_probability to SSE + frontend |
 | No thinking process | Frontend showed "分析中" then nothing | SSE streaming with step-by-step events |
 | Double welcome message | localStorage location + auto-GPS conflict | Skip auto-GPS when manual location saved |
+| 3km too far | Unrealistic walking distance limit | Max 800m (good weather) / 400m (bad weather) |
