@@ -433,3 +433,5 @@ The original design used Selenium for Google Maps search. Live testing revealed 
 | No thinking process | Frontend showed "分析中" then nothing | SSE streaming with step-by-step events |
 | Double welcome message | localStorage location + auto-GPS conflict | Skip auto-GPS when manual location saved |
 | 3km too far | Unrealistic walking distance limit | Max 800m (good weather) / 400m (bad weather) |
+| Results beyond distance shown | No distance filtering after geocode | Filter + auto-expand if nothing within range |
+| Short address geocode fail | Address "明志路一段289號" lacks district | Extract area (泰山區) from user geocode result as prefix |
