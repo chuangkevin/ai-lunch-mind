@@ -640,19 +640,20 @@ async def chat_recommendation_stream(message: str = None):
             search_location = location or "台北"
             kw_preview = ", ".join(keywords[:3]) if keywords else "餐廳"
 
-            # Calculate search distance from sweat index
-            max_distance_km = 3.0
-            distance_reason = "舒適天氣，搜尋範圍 3km"
-            if sweat_index is not None:
-                if sweat_index >= 8:
-                    max_distance_km = 0.5
-                    distance_reason = f"流汗指數 {sweat_index} (極不舒適)，搜尋範圍 500m"
-                elif sweat_index >= 6:
-                    max_distance_km = 1.0
-                    distance_reason = f"流汗指數 {sweat_index} (不舒適)，搜尋範圍 1km"
-                elif sweat_index >= 4:
-                    max_distance_km = 2.0
-                    distance_reason = f"流汗指數 {sweat_index} (普通)，搜尋範圍 2km"
+            # Calculate search distance: max 10min walk (good) / 5min walk (bad)
+            # 10min walk ≈ 800m, 5min walk ≈ 400m
+            rain_prob = weather_data.get("rain_probability", 0) if weather_data else 0
+            max_distance_km = 0.8  # default: good weather, 10min walk
+            distance_reason = "舒適天氣，步行10分鐘內 (800m)"
+            if sweat_index is not None and sweat_index >= 7:
+                max_distance_km = 0.4
+                distance_reason = f"流汗指數 {sweat_index} (不舒適)，步行5分鐘內 (400m)"
+            elif rain_prob and float(rain_prob) >= 50:
+                max_distance_km = 0.4
+                distance_reason = f"降雨機率 {rain_prob}%，步行5分鐘內 (400m)"
+            elif sweat_index is not None and sweat_index >= 5:
+                max_distance_km = 0.6
+                distance_reason = f"流汗指數 {sweat_index} (普通)，步行8分鐘內 (600m)"
 
             yield send_event("analysis", {
                 "distance_reason": distance_reason,
