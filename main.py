@@ -584,18 +584,34 @@ async def chat_recommendation_stream(message: str = None):
 
             # Weather
             try:
-                sweat_result = await loop.run_in_executor(
-                    None, lambda: query_sweat_index_by_location(message)
+                # Extract clean location for weather query (not full message)
+                import re as _re
+                weather_location = message
+                _loc_match = _re.search(r'我在([^\s，。！？,]{2,20})', message)
+                if _loc_match:
+                    weather_location = _loc_match.group(1)
+
+                sweat_result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, lambda: query_sweat_index_by_location(weather_location)
+                    ),
+                    timeout=8,
                 )
                 if "error" not in sweat_result:
                     weather_data, sweat_index = _extract_weather_data(sweat_result)
+                    rain_prob = weather_data.get("rain_probability")
                     yield send_event("weather", {
                         "temperature": weather_data.get("temperature"),
                         "humidity": weather_data.get("humidity"),
                         "sweat_index": sweat_index,
+                        "rain_probability": rain_prob,
                     })
-            except Exception:
-                yield send_event("thinking", {"step": "weather", "message": "天氣查詢跳過"})
+                else:
+                    yield send_event("thinking", {"step": "weather", "message": "天氣查詢無資料"})
+            except asyncio.TimeoutError:
+                yield send_event("thinking", {"step": "weather", "message": "天氣查詢超時，跳過"})
+            except Exception as e:
+                yield send_event("thinking", {"step": "weather", "message": f"天氣查詢跳過: {str(e)[:30]}"})
 
             # Intent
             intent = await loop.run_in_executor(

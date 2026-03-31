@@ -754,6 +754,14 @@
         if (data.sweat_index !== null && data.sweat_index !== undefined) {
           weatherHtml += ` | 😅 流汗指數 ${data.sweat_index}/10`;
         }
+        if (data.rain_probability !== null && data.rain_probability !== undefined) {
+          const rain = data.rain_probability;
+          const rainIcon = rain >= 60 ? '🌧️' : rain >= 30 ? '🌦️' : '☀️';
+          weatherHtml += ` | ${rainIcon} 降雨 ${rain}%`;
+          if (rain >= 60) {
+            weatherHtml += ' <strong style="color:#e65100;">記得帶傘！</strong>';
+          }
+        }
         weatherHtml += '</div></div>';
         // Insert weather as a new message before thinking
         const weatherDiv = document.createElement('div');
