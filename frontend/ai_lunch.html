@@ -761,7 +761,8 @@
 
       eventSource.addEventListener('intent', (e) => {
         const data = JSON.parse(e.data);
-        let html = '<div class="message-content">';
+        let html = '<div class="message-content" style="background:#f3e5f5;border-left:4px solid #9c27b0;padding:12px;border-radius:8px;">';
+        html += `<strong>🧠 AI 分析結果</strong><br>`;
         html += `<strong>📍 位置：</strong>${data.location || '未指定'}<br>`;
         if (data.keywords && data.keywords.length > 0) {
           html += `<strong>🔑 關鍵字：</strong>${data.keywords.join(', ')}<br>`;
@@ -773,12 +774,16 @@
           html += `<strong>💰 預算：</strong>${data.budget.max}元以內<br>`;
         }
         if (data.source === 'gemini') {
-          html += '<small style="color:#4caf50">✨ AI 分析</small>';
+          html += '<small style="color:#4caf50">✨ Gemini AI 分析</small>';
         } else {
-          html += '<small style="color:#ff9800">⚡ 快速分析</small>';
+          html += '<small style="color:#ff9800">⚡ 快速分析 (fallback)</small>';
         }
         html += '</div>';
-        thinkingDiv.innerHTML = html;
+        // Insert as a SEPARATE bubble, don't overwrite thinkingDiv
+        const intentDiv = document.createElement('div');
+        intentDiv.className = 'message bot';
+        intentDiv.innerHTML = html;
+        chatMessages.insertBefore(intentDiv, thinkingDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
       });
 
