@@ -39,16 +39,24 @@ def calculate_real_distances(
 
         for r in restaurants:
             addr = r.get("address", "")
+
+            # Skip if address is just "附近" — geocoding restaurant name is unreliable
             if not addr or addr.endswith("附近"):
-                addr = r.get("name", "") + " " + user_location
+                # Try using restaurant name as search term
+                addr = r.get("name", "") + " 台北"
 
             try:
                 rest_geo = geolocator.geocode(addr)
                 if rest_geo:
                     rest_coords = (rest_geo.latitude, rest_geo.longitude)
                     dist_km = geodesic(user_coords, rest_coords).kilometers
-                    walking_km = dist_km * 1.3  # Walking route factor
-                    walking_minutes = round(walking_km / 5 * 60)  # 5 km/h
+
+                    # Sanity check: if distance < 30m, geocode probably hit the same point
+                    if dist_km < 0.03:
+                        continue  # Skip, don't show fake 0m distance
+
+                    walking_km = dist_km * 1.3
+                    walking_minutes = round(walking_km / 5 * 60)
 
                     r["distance_km"] = round(dist_km, 2)
                     r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
@@ -218,9 +226,10 @@ def enrich_with_gemini(
 我已搜尋到以下餐廳：
 {json.dumps(existing_names, ensure_ascii=False)}
 
-請做兩件事：
-1. 為每間已知餐廳補充資訊（如果你知道的話）
-2. 再補充 3-5 間你確定在 {location} 附近真實存在的相關餐廳
+請做三件事：
+1. 移除不是餐廳的項目（如大樓、公司、公園等），標記 "remove": true
+2. 為每間已知餐廳補充資訊（如果你知道的話），特別是完整地址
+3. 再補充 3-5 間你確定在 {location} 附近真實存在的相關餐廳
 
 回傳 JSON 陣列：
 [
@@ -240,7 +249,8 @@ def enrich_with_gemini(
 - 只推薦你確定真實存在的餐廳
 - 地址要盡量準確
 - 價格要符合台灣物價
-- 不要估算步行距離或時間，距離由系統計算"""
+- 不要估算步行距離或時間，距離由系統計算
+- 如果項目不是餐廳（如大樓、辦公室、公園），設 "remove": true"""
 
     try:
         client = genai.Client(api_key=api_key)
@@ -259,17 +269,24 @@ def enrich_with_gemini(
         # Merge enriched data back
         enriched_by_name = {r["name"]: r for r in enriched if "name" in r}
 
+        # Filter out non-restaurants marked by Gemini
+        remove_names = {r["name"] for r in enriched if r.get("remove")}
+        if remove_names:
+            logger.info("Removing non-restaurants: %s", remove_names)
+            restaurants = [r for r in restaurants if r.get("name") not in remove_names]
+
         for rest in restaurants:
             name = rest.get("name", "")
             if name in enriched_by_name:
                 info = enriched_by_name.pop(name)
+                if info.get("remove"):
+                    continue
                 rest["address"] = info.get("address", rest.get("address", ""))
                 rest["rating"] = info.get("rating", rest.get("rating"))
                 rest["price_level"] = info.get("price_level", rest.get("price_level"))
                 rest["estimated_price"] = info.get("price_level")
                 rest["food_type"] = info.get("food_type", rest.get("food_type", ""))
                 rest["ai_reason"] = info.get("reason", "")
-                # walking_minutes/walking_distance set by calculate_real_distances, not Gemini
 
         # Add new restaurants from Gemini
         for name, info in enriched_by_name.items():
