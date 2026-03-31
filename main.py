@@ -620,108 +620,92 @@ async def chat_recommendation_stream(message: str = None):
                 "source": intent.get("_source", "unknown"),
             })
 
-            # Step 2: Ask Gemini directly for restaurant recommendations
-            # This is MUCH faster than Selenium (~3s vs 30s+)
-            kw_preview = ", ".join(keywords[:3]) if keywords else "餐廳"
-            yield send_event("thinking", {"step": "search", "message": f"搜尋 {location} 的 {kw_preview}..."})
-
-            from modules.ai.gemini_pool import gemini_pool
-
+            # Step 2: Search for real restaurants
             search_location = location or "台北"
-            budget_hint = ""
-            if budget and budget.get("max"):
-                budget_hint = f"\n預算：{budget['max']}元以內"
+            kw_preview = ", ".join(keywords[:3]) if keywords else "餐廳"
 
-            weather_hint = ""
-            if weather_data and weather_data.get("temperature"):
-                weather_hint = f"\n天氣：{weather_data.get('temperature')}°C, 濕度{weather_data.get('humidity', 'N/A')}%"
+            # Calculate search distance from sweat index
+            max_distance_km = 3.0
+            distance_reason = "舒適天氣，搜尋範圍 3km"
+            if sweat_index is not None:
+                if sweat_index >= 8:
+                    max_distance_km = 0.5
+                    distance_reason = f"流汗指數 {sweat_index} (極不舒適)，搜尋範圍 500m"
+                elif sweat_index >= 6:
+                    max_distance_km = 1.0
+                    distance_reason = f"流汗指數 {sweat_index} (不舒適)，搜尋範圍 1km"
+                elif sweat_index >= 4:
+                    max_distance_km = 2.0
+                    distance_reason = f"流汗指數 {sweat_index} (普通)，搜尋範圍 2km"
 
-            gemini_prompt = f"""你是台灣美食推薦專家。請推薦 {search_location} 附近的餐廳。
+            yield send_event("analysis", {
+                "distance_reason": distance_reason,
+                "max_distance_km": max_distance_km,
+            })
 
-使用者需求：{message}
-搜尋關鍵字：{', '.join(keywords)}{budget_hint}{weather_hint}
-現在時間：{'早上' if current_hour < 11 else '中午' if current_hour < 14 else '下午' if current_hour < 17 else '晚上'}
+            yield send_event("thinking", {"step": "search", "message": f"搜尋 {search_location} 的 {kw_preview}..."})
 
-請推薦 5-8 間真實存在的餐廳，必須回傳 JSON 陣列格式：
-[
-  {{
-    "name": "餐廳名稱",
-    "address": "完整地址",
-    "rating": 4.5,
-    "price_level": "$200-350",
-    "food_type": "日式拉麵",
-    "reason": "一句話推薦理由",
-    "distance_estimate": "約500m"
-  }}
-]
+            # Phase 2a: Fast Google search for real restaurant data
+            from modules.fast_search import search_restaurants_fast, enrich_with_gemini
+            from urllib.parse import quote
 
-重要規則：
-1. 只推薦真實存在的餐廳（不要編造）
-2. 地址要具體到路名門牌
-3. 價格要符合台灣物價
-4. 依距離近到遠排序
-5. 只回傳 JSON，不要其他文字"""
+            all_restaurants = []
+            for kw in keywords[:3]:
+                try:
+                    results = await loop.run_in_executor(
+                        None,
+                        lambda k=kw: search_restaurants_fast(k, search_location, max_results=5),
+                    )
+                    for r in results:
+                        if not any(existing["name"] == r["name"] for existing in all_restaurants):
+                            r["food_type"] = kw
+                            all_restaurants.append(r)
+                except Exception as e:
+                    logger.warning("Fast search failed for '%s': %s", kw, e)
+
+            yield send_event("thinking", {
+                "step": "search_done",
+                "message": f"Google 搜尋找到 {len(all_restaurants)} 間餐廳",
+            })
+
+            # Phase 2b: Enrich with Gemini (add ratings, prices, reasons, supplements)
+            yield send_event("thinking", {"step": "enrich", "message": "AI 補充資訊與評分中..."})
 
             try:
-                from google import genai as _genai
-                from google.genai import types as _types
-
-                api_key = gemini_pool.get_key()
-                if not api_key:
-                    raise Exception("沒有可用的 Gemini API key")
-
-                client = _genai.Client(api_key=api_key)
-                gemini_resp = await loop.run_in_executor(
+                all_restaurants = await loop.run_in_executor(
                     None,
-                    lambda: client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=gemini_prompt,
-                        config=_types.GenerateContentConfig(
-                            temperature=0.4,
-                            response_mime_type="application/json",
-                        ),
+                    lambda: enrich_with_gemini(
+                        all_restaurants, message, search_location,
+                        keywords, budget, weather_data,
                     ),
                 )
+            except Exception as e:
+                logger.warning("Gemini enrichment failed: %s", e)
 
-                resp_text = gemini_resp.text.strip()
-                restaurants = json.loads(resp_text)
-
-                if not isinstance(restaurants, list):
-                    restaurants = restaurants.get("restaurants", []) if isinstance(restaurants, dict) else []
+            # Phase 3: Score and rank
+            if all_restaurants:
+                # Add maps URLs for any missing
+                for r in all_restaurants:
+                    if not r.get("maps_url"):
+                        r["maps_url"] = f"https://www.google.com/maps/search/{quote(r.get('name',''))}+{quote(search_location)}"
+                    r.setdefault("social_proof", None)
+                    r.setdefault("relevance_score", 7.0)
+                    r.setdefault("estimated_price", r.get("price_level"))
 
                 yield send_event("thinking", {
                     "step": "scoring",
-                    "message": f"Gemini 推薦了 {len(restaurants)} 間餐廳",
+                    "message": f"共 {len(all_restaurants)} 間餐廳，排序中...",
                 })
 
-                for i, r in enumerate(restaurants):
-                    restaurant = {
-                        "name": r.get("name", ""),
-                        "address": r.get("address", ""),
-                        "rating": r.get("rating"),
-                        "price_level": r.get("price_level"),
-                        "food_type": r.get("food_type", ""),
-                        "distance_km": None,
-                        "distance_display": r.get("distance_estimate", ""),
-                        "maps_url": f"https://www.google.com/maps/search/{r.get('name', '')}+{search_location}",
-                        "ai_reason": r.get("reason", ""),
-                        "estimated_price": r.get("price_level"),
-                        "relevance_score": round(10 - i * 0.5, 1),
-                        "social_proof": None,
-                        "source": "gemini",
-                    }
+                for i, restaurant in enumerate(all_restaurants):
                     yield send_event("restaurant", {"index": i, "restaurant": restaurant})
                     await asyncio.sleep(0.05)
 
                 yield send_event("done", {
-                    "total": len(restaurants),
-                    "source": "gemini_direct",
+                    "total": len(all_restaurants),
                 })
-
-            except json.JSONDecodeError:
-                yield send_event("error", {"message": "AI 回應格式錯誤，請再試一次"})
-            except Exception as e:
-                yield send_event("error", {"message": f"搜尋失敗: {str(e)}"})
+            else:
+                yield send_event("error", {"message": "沒有找到餐廳，請換個說法試試"})
 
         except asyncio.TimeoutError:
             yield send_event("error", {"message": "搜尋超時，請稍後再試"})

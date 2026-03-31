@@ -759,6 +759,17 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
       });
 
+      eventSource.addEventListener('analysis', (e) => {
+        const data = JSON.parse(e.data);
+        const analysisDiv = document.createElement('div');
+        analysisDiv.className = 'message bot';
+        analysisDiv.innerHTML = `<div class="message-content" style="background:#fff3e0;border-left:4px solid #ff9800;padding:10px;border-radius:8px;">
+          <strong>📏 ${data.distance_reason}</strong>
+        </div>`;
+        chatMessages.insertBefore(analysisDiv, thinkingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+
       eventSource.addEventListener('intent', (e) => {
         const data = JSON.parse(e.data);
         let html = '<div class="message-content" style="background:#f3e5f5;border-left:4px solid #9c27b0;padding:12px;border-radius:8px;">';
