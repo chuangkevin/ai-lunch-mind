@@ -229,3 +229,22 @@ Minimal changes — keep functional, match dark theme:
 | `--pill-green-bg` | `#064e3b` | Distance pill |
 | `--pill-purple-bg` | `#1e1b4b` | Price/social pill |
 | `--pill-blue-bg` | `#1e3a5f` | Weather pill |
+
+---
+
+## Implementation Status
+
+**Implemented: 2026-03-31**
+
+| Component | File | Status |
+|-----------|------|--------|
+| New UI (dark theme, search engine layout) | `frontend/ai_lunch_v2.html` | Done |
+| Settings dark theme | `frontend/settings.html` | Done |
+| Route update | `main.py` | Done |
+| SSE endpoint | `main.py` | Unchanged, verified compatible |
+
+### Self-Test Results
+- `/ai_lunch` serves dark theme page with correct colors (#111827, #7c3aed) — verified
+- SSE events (intent/weather/analysis/search) format correct — verified via curl
+- Gemini intent analysis returns location + keywords correctly — verified
+- Settings page restyled to matching dark theme — verified

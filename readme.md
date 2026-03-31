@@ -1,318 +1,241 @@
-# 午餐吃什麼 🍱 - AI 智能推薦系統
+# 午餐吃什麼 - AI 智能推薦系統
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688.svg?style=flat&logo=FastAPI)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?style=flat&logo=python)](https://python.org)
-[![ChatGPT](https://img.shields.io/badge/ChatGPT-4o--mini-orange.svg?style=flat&logo=openai)](https://openai.com)
+[![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-blue.svg?style=flat&logo=google)](https://ai.google.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](LICENSE)
 
-## ✅ 系統概述
+## 系統概述
 
-> **🤖 對話式智能推薦**：整合 ChatGPT 語意分析、天氣查詢、流汗指數計算與 Google Maps 餐廳搜尋，提供最適合的用餐建議。
+整合 Gemini AI 語意分析、中央氣象署天氣資料、Google Maps 真實餐廳搜尋、社群平台口碑，根據你的位置、天氣、預算提供個人化午餐推薦。
 
-### 🎯 核心特色
+### 核心特色
 
-- **🤖 ChatGPT 語意分析**：使用 GPT-4o-mini 深度理解用戶需求，區分地址、店名、食物類型
-- **🎯 智能關鍵字擴展**：拉麵 → [拉麵, 日式拉麵, 豚骨拉麵]，東山鴨頭 → [鴨頭, 滷味, 小吃]
-- **🛡️ AI 驗證系統**：三層驗證確保推薦品質（位置、意圖、推薦品質）
-- **🌤️ 天氣感知推薦**：根據溫度、濕度、降雨機率調整餐點類型
-- **😅 流汗指數優化**：依據流汗指數動態調整搜尋範圍（500m-3000m）
-- **🗣️ 自然語言理解**：支援對話式需求分析與位置解析
-- **📊 距離優先排序**：智能餐廳評分（距離優先、評分、天氣適應性、價格）
-- **🌧️ 降雨警示整合**：自動提供雨具攜帶建議
-- **🔥❄️ 餐點溫度分類**：智能過濾不適合的餐點類型（熱食/冷食/中性）
+- **Gemini 2.5 Flash 語意分析** - 理解自然語言需求，提取位置、食物偏好、預算
+- **Google Maps 真實餐廳資料** - Selenium headless 搜尋，取得真實名稱、地址、評分
+- **天氣感知推薦** - 中央氣象署 API 整合流汗指數，天氣好走遠一點、天氣差找近的
+- **真實步行距離** - ArcGIS 地理編碼 + geodesic 公式計算，不靠 AI 猜測
+- **社群口碑** - 搜尋 Dcard/PTT 討論，標記社群推薦的餐廳
+- **SSE 即時串流** - Server-Sent Events 即時顯示分析進度（意圖→天氣→搜尋→排序）
+- **降雨警示** - 降雨機率 >= 50% 自動提醒帶傘
+- **Gemini API Key Pool** - 多把 key 隨機選用，429 自動重試，SQLite 儲存
 
 ---
 
-## 🚀 快速開始
+## 快速開始
 
-### 📋 環境需求
+### 環境需求
 
-```bash
+```
 Python 3.11+
-Chrome/Chromium 瀏覽器 (用於 Google Maps 搜尋)
-中央氣象署 API 金鑰 (可選，用於真實天氣資料)
-OpenAI API 金鑰 (用於 ChatGPT 分析)
+Chrome/Chromium (Selenium headless 搜尋用)
+Gemini API Key (至少 1 把，建議 5 把以上)
+CWB API Key (可選，用於真實天氣資料)
 ```
 
-### 🔧 安裝步驟
+### 安裝
 
-1. **克隆專案**
 ```bash
 git clone https://github.com/chuangkevin/ai-lunch-mind.git
 cd ai-lunch-mind
-```
-
-2. **建立虛擬環境**
-```bash
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # macOS/Linux
-```
-
-3. **安裝依賴**
-```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
 ```
 
-4. **設定環境變數**
+### 設定環境變數
+
 ```bash
-# 建立 .env 檔案
-OPENAI_API_KEY=your_openai_api_key_here
-CWB_API_KEY=your_cwb_api_key_here  # 可選
+# .env
+CWB_API_KEY=your_cwb_api_key  # 可選
 ```
 
-5. **啟動系統**
+Gemini API Key 不放 `.env`，透過網頁設定頁面匯入，存在 SQLite（不進 git）。
+
+### 啟動
+
 ```bash
-python main.py
+uvicorn main:app --host 127.0.0.1 --port 5000
 ```
 
-6. **開啟瀏覽器**
-```
-http://localhost:5001/ai_lunch
-```
+### 使用
+
+1. 開啟 `http://localhost:5000/settings` 匯入 Gemini API Key（一行一把）
+2. 開啟 `http://localhost:5000/ai_lunch` 開始使用
+3. 輸入位置和需求，例如：「我在台北101，想吃火鍋」
 
 ---
 
-## 🎯 使用方式
+## 使用方式
 
-### 🗣️ 對話互動方式
+### 輸入範例
 
-#### 1️⃣ 位置 + 需求型
 ```
 "我在台北101，想吃火鍋"
-"信義區附近有什麼冰品店？"
-"西門町的燒烤店推薦"
-```
-
-#### 2️⃣ 地址精確型
-```
-"台北市中山區南京東路的日式料理"
-"新北市板橋區的義大利麵餐廳"
-```
-
-#### 3️⃣ 地標模糊型
-```
+"信義區附近 200 元以內的便當"
 "台北車站附近想吃拉麵"
-"淡水老街的小吃推薦"
+"午餐吃什麼"（搭配 GPS 或手動位置）
 ```
 
-#### 4️⃣ Google Maps URL
-```
-"https://maps.app.goo.gl/xxxxx 這裡有什麼好吃的？"
-"g.co/kgs/xxxxx 附近的咖啡店"
-```
+### 位置設定（三層優先）
 
-### 🎯 推薦規則設計
+1. **對話中提到** - 「我在台北101」自動覆蓋其他設定
+2. **手動輸入** - 點頂部位置區域修改，存在 localStorage
+3. **GPS 定位** - 瀏覽器 Geolocation API，首次自動觸發
 
-#### 📍 動態搜尋範圍
-- **流汗指數 ≥ 8**：極不舒適 → **500m 內**
-- **流汗指數 6-7**：不舒適 → **1000m 內** 
-- **流汗指數 4-5**：普通 → **2000m 內**
-- **流汗指數 ≤ 3**：舒適 → **3000m 內**
+### 搜尋距離（依天氣自動調整）
 
-#### 🍽️ 餐點類型智能過濾
-- **高溫天氣（流汗指數≥7 或 溫度≥32°C）**：降低熱食推薦，提升冷食權重
-- **舒適天氣（流汗指數≤3 或 溫度≤20°C）**：提升熱食推薦
-- **降雨機率高**：優先推薦室內用餐環境
+| 條件 | 最大距離 | 步行時間 |
+|------|---------|---------|
+| 舒適天氣（流汗指數 < 5） | 800m | 約 10 分鐘 |
+| 普通天氣（流汗指數 5-6） | 600m | 約 8 分鐘 |
+| 不舒適（流汗指數 >= 7 或降雨 >= 50%） | 400m | 約 5 分鐘 |
+| 範圍內無結果 | 自動擴大 | 顯示最近的 N 間 |
 
 ---
 
-## 🛠 技術架構
+## 技術架構
 
-### 🔧 核心模組
+### 推薦流程（SSE 串流）
+
+```
+使用者輸入
+  |
+  v
+Phase 1: Gemini 意圖分析 (~1s)
+  -> 提取位置、關鍵字、預算
+  |
+Phase 2: 天氣查詢 (~1s)
+  -> 中央氣象署 API -> 流汗指數 -> 搜尋距離
+  |
+Phase 3: Google Maps 搜尋 (~3-5s)
+  -> Selenium headless -> 真實餐廳資料
+  -> Gemini 補充推薦理由 + 過濾非餐廳
+  |
+Phase 4: 距離計算 + 排序 (~1-2s)
+  -> ArcGIS geocode -> geodesic 公式
+  -> 距離過濾 + 排序
+  |
+Phase 5: 社群搜尋 (~1-2s)
+  -> Google 搜尋 Dcard/PTT 討論
+  |
+  v
+即時串流餐廳卡片到前端
+```
+
+### 模組結構
 
 ```
 modules/
-├── ai_recommendation_engine.py  # 🤖 AI 推薦引擎 (主要邏輯)
-├── ai_validator.py             # 🛡️ AI 驗證系統 (品質保證)
-├── dialog_analysis.py          # 💬 ChatGPT 對話分析
-├── google_maps.py              # 🗺️ Google Maps 搜尋整合
-├── weather.py                  # 🌡️ 中央氣象署 API
-├── sweat_index.py             # 😅 流汗指數計算
-└── feedback_learning.py       # 📈 學習回饋機制 (待開發)
+├── ai/
+│   ├── gemini_pool.py          # API Key Pool (隨機選 key, 429 重試, SQLite)
+│   ├── intent_analyzer.py      # Gemini 意圖分析 (位置/關鍵字/預算)
+│   └── restaurant_scorer.py    # 評分公式 (距離/評分/社群/預算)
+├── scraper/
+│   ├── browser_pool.py         # Selenium Chrome 池 (lazy init, headless)
+│   ├── google_maps.py          # Google Maps 搜尋 + 資料提取
+│   ├── google_search.py        # Google 搜尋爬蟲
+│   ├── ptt_scraper.py          # PTT 爬蟲
+│   └── selectors.py            # CSS selector 集中管理
+├── geo/
+│   ├── geocoding.py            # 地址解析 + 座標轉換
+│   └── distance.py             # 距離計算 (haversine + 步行)
+├── fast_search.py              # 快速搜尋 pipeline (Selenium + Gemini enrichment)
+├── recommendation_engine.py    # 主流程編排
+├── weather.py                  # 中央氣象署 API
+├── sweat_index.py              # 流汗指數計算
+└── sqlite_cache_manager.py     # SQLite 快取
+
+frontend/
+├── ai_lunch_v2.html            # 主介面 (深色科技風)
+└── settings.html               # API Key 管理
+
+main.py                         # FastAPI 伺服器 + SSE 端點
 ```
 
-### 🌐 API 端點
+### API 端點
 
-**主要推薦 API：**
-- `GET /chat-recommendation` - 分階段對話式推薦
-- `POST /chat/recommend` - JSON 格式對話推薦  
-- `GET /ai-lunch-recommendation` - 直接推薦API
+**推薦 API：**
 
-**功能支援 API：**
-- `GET /weather` - 天氣查詢
-- `GET /sweat-index` - 流汗指數查詢
-- `GET /restaurants` - 餐廳搜尋
-- `GET /location-options` - 位置候選列表
+| 端點 | 方法 | 說明 |
+|------|------|------|
+| `/chat-recommendation-stream` | GET | SSE 串流推薦（主要使用） |
+| `/chat-recommendation` | GET | 分階段推薦（向後相容） |
+| `/ai-lunch-recommendation` | GET | 直接推薦 |
 
-**頁面路由：**
-- `/` - 主頁面
-- `/ai_lunch` - AI 推薦聊天界面
-- `/restaurant` - 餐廳搜尋頁面
-- `/weather_page` - 天氣查詢頁面
+**金鑰管理：**
 
-### 後端技術
+| 端點 | 方法 | 說明 |
+|------|------|------|
+| `/api/keys/import` | POST | 批量匯入 Gemini API Key |
+| `/api/keys/status` | GET | 金鑰狀態（僅顯示後 4 碼） |
+| `/api/keys/usage` | GET | 使用統計 |
+| `/api/keys/{suffix}` | DELETE | 刪除金鑰 |
 
-- **FastAPI**: 高性能 ASGI 框架，自動產生 OpenAPI 文件
-- **Uvicorn**: ASGI 伺服器，支援異步處理
-- **Selenium**: 瀏覽器自動化，模擬真實使用者搜尋 Google Maps
-- **BeautifulSoup**: HTML 解析，提取餐廳資訊
-- **Geopy**: 地理編碼與距離計算
-- **Requests**: HTTP 客戶端，用於 API 呼叫
+**其他：**
 
-### 前端技術
+| 端點 | 方法 | 說明 |
+|------|------|------|
+| `/weather` | GET | 天氣查詢 |
+| `/sweat-index` | GET | 流汗指數 |
+| `/health` | GET | 健康檢查 |
 
-- **HTML5 + CSS3**: 響應式設計
-- **JavaScript**: 異步資料處理與 DOM 操作
-- **Bootstrap**: UI 框架
-- **Chart.js**: 資料視覺化（天氣圖表）
+**頁面：**
+- `/ai_lunch` - AI 推薦介面
+- `/settings` - 金鑰管理
+- `/restaurant` - 餐廳搜尋
+- `/weather_page` - 天氣查詢
 
----
+### 技術棧
 
-## ✅ 已實現功能
-
-### 🤖 AI 智能推薦引擎
-- **🧠 ChatGPT 語意分析**：使用 GPT-4o-mini 深度理解「龜山區東山鴨頭」等複雜查詢
-- **🎯 智能關鍵字映射**：拉麵→[拉麵,日式拉麵,豚骨拉麵]、東山鴨頭→[鴨頭,滷味,小吃]
-- **📊 距離優先排序**：近距離餐廳優先推薦，雙重距離計算機制
-- **🔄 多層次備用機制**：ChatGPT→關鍵字檢測→時間推薦→天氣推薦
-- **💬 簡化對話流程**：移除複雜位置選擇，實現一步式自動推薦
-
-### 🛡️ AI 驗證系統 (NEW)
-- **📍 位置驗證**：檢查地標關鍵字提取正確性，支援地理編碼驗證
-- **🎯 意圖匹配驗證**：使用AI分析搜尋關鍵字與使用者意圖相關性
-- **🍽️ 推薦品質驗證**：評估餐廳推薦的多樣性、覆蓋率和滿意度
-- **🔍 具體性問題檢測**：自動識別過度泛化問題（如：拉麵→麵食）
-- **⚡ 動態關鍵字調整**：根據驗證結果自動優化搜尋策略
-- **📊 品質指標監控**：提供信心度、相關性分數等量化指標
-
-### 🚀 性能優化系統 (NEW)
-- **📦 智能快取機制**：LRU+TTL策略，餐廳(30m)、天氣(15m)、AI分析(60m)快取
-- **🌐 瀏覽器池管理**：預建2個瀏覽器實例，避免重複啟動，節省30-60秒
-- **⚡ 並行處理優化**：位置驗證+天氣查詢+對話分析並行執行，提升50%效率
-- **📊 快取命中監控**：提供命中率統計和性能指標
-- **🔄 自動資源管理**：過期清理和記憶體優化
-- **🎯 響應時間目標**：6秒內完成推薦流程
-
-### 🌤️ 天氣整合系統
-- **🌡️ 中央氣象署 API**：整合官方天氣資料
-- **😅 流汗指數計算**：基於溫度、濕度、風速計算體感溫度
-- **🌧️ 降雨機率查詢**：提供降雨警示與雨具攜帶建議
-
-### 🗺️ 地理位置處理
-- **📍 多格式地址支援**：詳細地址、地標名稱、Google Maps URL
-- **🌍 智能地址解析**：自動展開短網址並提取座標
-- **📏 距離計算**：精確計算餐廳與目標位置距離
-
-### 🍽️ 餐廳搜尋系統
-- **🔍 Selenium 自動化**：模擬真實使用者行為搜尋 Google Maps
-- **🔄 並行搜尋機制**：多關鍵字同時搜尋，提升效率
-- **🔗 URL 可靠性機制**：多層後備方案確保連結有效性
-
-### 🖥️ 用戶界面
-- **💬 對話式聊天界面**：直觀的餐廳推薦體驗
-- **📱 響應式設計**：支援桌面和行動裝置
-- **⚡ 即時回饋**：搜尋進度和結果即時顯示
+| 層級 | 技術 |
+|------|------|
+| AI | Google Gemini 2.5 Flash / 2.0 Flash Lite |
+| 後端 | Python 3.11+, FastAPI, Uvicorn |
+| 搜尋 | Selenium (headless Chrome), BeautifulSoup |
+| 地理 | ArcGIS Geocoding, Geopy (geodesic) |
+| 天氣 | 中央氣象署 CWB API |
+| 快取 | SQLite |
+| 前端 | HTML5 + CSS3 + JavaScript (原生，無框架) |
+| 串流 | Server-Sent Events (SSE) |
 
 ---
 
-## ✅ 已完成優化項目
+## 資料來源與信任原則
 
-### 🚀 性能優化 ✅ 
-- ✅ **智能快取機制**：已實現餐廳、天氣、AI分析快取
-- ✅ **瀏覽器連接池**：避免重複啟動，大幅減少等待時間
-- ✅ **並行處理優化**：多任務同時執行，提升響應速度
+| 資料 | 來源 | 信任度 |
+|------|------|--------|
+| 餐廳名稱、地址、評分 | Google Maps (Selenium) | 高 |
+| 步行距離 | ArcGIS geocode + geodesic 公式 | 高 |
+| 天氣、降雨機率 | 中央氣象署 API | 高 |
+| 社群討論 | Google 搜尋 Dcard/PTT | 中 |
+| 推薦理由 | Gemini AI 生成 | 僅供參考 |
 
-## 🚧 待優化項目
-
-### 📊 品質提升
-1. **餐廳評分算法精進**：更精確的推薦排序
-2. **用戶偏好學習**：根據選擇歷史優化推薦
-3. **推薦解釋功能**：說明推薦理由
-
-### 🔄 功能擴展
-1. **多人聚餐推薦**：考慮多人需求
-2. **預約整合功能**：直接連結訂位系統
-3. **個人化記憶**：記住用戶偏好
+**Gemini 不生成餐廳資料。** 所有餐廳名稱、地址、評分來自 Google Maps。Gemini 只負責意圖分析和補充推薦理由。
 
 ---
 
-## 📊 專案結構
+## 測試
 
-```
-ai-lunch-mind/
-├── main.py                     # FastAPI 主程式
-├── requirements.txt            # Python 依賴
-├── .env                        # 環境變數設定
-├── modules/                    # 核心模組
-│   ├── ai_recommendation_engine.py
-│   ├── ai_validator.py         # AI 驗證系統
-│   ├── cache_manager.py        # 快取管理系統 (NEW)
-│   ├── browser_pool.py         # 瀏覽器池系統 (NEW)
-│   ├── dialog_analysis.py
-│   ├── google_maps.py
-│   ├── weather.py
-│   ├── sweat_index.py
-│   └── feedback_learning.py
-├── frontend/                   # 前端檔案
-│   ├── ai_lunch.html          # 主要聊天界面
-│   ├── index.html             # 首頁
-│   ├── restaurant.html        # 餐廳搜尋頁面
-│   └── weather.html           # 天氣查詢頁面
-├── doc/                       # 文件
-│   ├── 需求文件.md
-│   └── 搜尋速度優化解決方案.md
-├── test_*.py                  # 測試檔案
-├── test_performance_optimization.py  # 性能優化完整測試 (NEW)
-└── test_performance_quick.py         # 性能優化快速測試 (NEW)
+```bash
+# 單元測試 (43 tests)
+python -m unittest test_system_overhaul -v
+
+# 包含：API Key Pool、評分公式、意圖分析 fallback、搜尋場景
 ```
 
 ---
 
-## 🤝 貢獻指南
+## 授權
 
-歡迎提交 Issue 和 Pull Request！
+MIT License - 詳見 [LICENSE](LICENSE)
 
-### 開發設定
+## 致謝
 
-1. Fork 本專案
-2. 建立功能分支：`git checkout -b feature/new-feature`
-3. 提交變更：`git commit -am 'Add new feature'`
-4. 推送分支：`git push origin feature/new-feature`
-5. 建立 Pull Request
-
-### 程式碼規範
-
-- 遵循 PEP 8 風格指南
-- 添加適當的註解和文檔字串
-- 編寫單元測試
-- 確保所有測試通過
-
----
-
-## 📄 授權
-
-本專案採用 MIT 授權條款 - 詳見 [LICENSE](LICENSE) 檔案
-
----
-
-## 🙏 致謝
-
-- [OpenAI](https://openai.com) - ChatGPT API
+- [Google Gemini](https://ai.google.dev) - AI 語意分析
 - [中央氣象署](https://www.cwb.gov.tw) - 天氣資料 API
-- [Google Maps](https://maps.google.com) - 地圖與餐廳資料
+- [Google Maps](https://maps.google.com) - 餐廳資料
 - [FastAPI](https://fastapi.tiangolo.com) - Web 框架
 - [Selenium](https://selenium.dev) - 瀏覽器自動化
-
----
-
-## 📞 聯絡資訊
-
-如有任何問題或建議，歡迎透過以下方式聯絡：
-
-- GitHub Issues: [專案 Issues](https://github.com/chuangkevin/ai-lunch-mind/issues)
-- Email: [您的聯絡信箱]
-
----
-
-**⭐ 如果這個專案對您有幫助，請給我們一個 Star！**
+- [ArcGIS](https://www.arcgis.com) - 地理編碼
