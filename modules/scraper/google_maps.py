@@ -874,11 +874,12 @@ def search_restaurants_selenium(
         logger.info(f"Starting Selenium restaurant search: {keyword}")
 
         try:
-            from modules.browser_pool import get_browser, release_browser
-            driver = get_browser()
-            logger.info("Using legacy browser pool")
+            from modules.scraper.browser_pool import browser_pool
+            with browser_pool.get_browser() as pooled_driver:
+                driver = pooled_driver
+                logger.info("Using new browser pool (headless)")
         except Exception as e:
-            logger.warning(f"Legacy browser pool unavailable, creating driver: {e}")
+            logger.warning(f"Browser pool unavailable, creating headless driver: {e}")
             driver = create_chrome_driver(headless=True)
 
         if location_info and (location_info.get('display_address') or location_info.get('address')):
@@ -944,17 +945,12 @@ def search_restaurants_selenium(
         logger.error(f"Selenium search failed: {e}")
         return []
     finally:
+        # Driver is managed by context manager if from pool, or needs manual cleanup
         if driver:
             try:
-                from modules.browser_pool import release_browser
-                release_browser(driver)
-                logger.info("Browser returned to legacy pool")
-            except Exception as e:
-                logger.warning(f"Legacy pool return failed, closing directly: {e}")
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
+                driver.quit()
+            except Exception:
+                pass
 
 
 # ===================================================================

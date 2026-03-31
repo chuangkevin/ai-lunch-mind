@@ -20,7 +20,7 @@ from selenium.common.exceptions import WebDriverException, TimeoutException
 from contextlib import contextmanager
 
 class BrowserPool:
-    def __init__(self, pool_size=2, max_idle_time=300):  # 5分鐘閒置
+    def __init__(self, pool_size=6, max_idle_time=300):  # 優化：6個瀏覽器實例，5分鐘閒置
         self.pool_size = pool_size
         self.max_idle_time = max_idle_time
         self.browsers = []
@@ -36,6 +36,7 @@ class BrowserPool:
     def _get_chrome_options(self):
         """配置Chrome選項"""
         options = Options()
+        options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
@@ -202,7 +203,7 @@ class BrowserPool:
                 self.release_browser(browser)
 
 # 創建全域瀏覽器池實例
-browser_pool = BrowserPool(pool_size=2, max_idle_time=300)
+browser_pool = BrowserPool(pool_size=6, max_idle_time=300)
 
 # 便捷函數
 def get_browser():
