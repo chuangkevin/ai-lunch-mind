@@ -414,8 +414,18 @@
     // --- Location Management ---
     let userCoords = null; // {lat, lng, address, source: 'gps'|'manual'|'chat'}
 
+    // Restore manual location from localStorage on page load
+    const savedManualLocation = localStorage.getItem('manual_location');
+    if (savedManualLocation) {
+      userCoords = { lat: null, lng: null, address: savedManualLocation, source: 'manual' };
+    }
+
     function setLocation(address, source, lat, lng) {
       userCoords = { lat: lat || null, lng: lng || null, address, source };
+      // Persist manual/chat locations so GPS doesn't override on reload
+      if (source === 'manual' || source === 'chat') {
+        localStorage.setItem('manual_location', address);
+      }
       updateLocationBar();
     }
 
@@ -445,6 +455,7 @@
 
     function clearLocation() {
       userCoords = null;
+      localStorage.removeItem('manual_location');
       geoButton.classList.remove('located');
       const bar = document.getElementById('locationBar');
       if (bar) bar.style.display = 'none';
@@ -961,24 +972,38 @@
       // 監聽 textarea 輸入事件來自動調整高度
       userInput.addEventListener('input', autoResizeTextarea);
       
-      // 顯示歡迎訊息和位置詢問
+      // Restore location bar if manual location was saved
+      if (userCoords) {
+        updateLocationBar();
+      }
+
+      // 顯示歡迎訊息
       setTimeout(() => {
-        addMessage(`
-          <div style="color: #2c5aa0; background: #e3f2fd; padding: 15px; border-radius: 12px; border-left: 4px solid #2196f3;">
-            <strong>🤖 歡迎使用 AI 午餐推薦系統！</strong><br><br>
-            <strong>📍 點左下角的定位按鈕</strong>，自動取得您的位置，之後只要說想吃什麼就好。<br><br>
-            <strong>💡 也可以手動輸入：</strong><br>
-            • 地標名稱：台北101、西門町<br>
-            • 詳細地址：台北市信義區<br>
-            • Google Maps 分享連結<br><br>
-            <small>💬 或直接開始：「台北車站附近的拉麵店」「200元以內的便當」</small>
-          </div>
-        `);
+        if (userCoords) {
+          addMessage(`
+            <div style="color:#1b5e20;background:#e8f5e9;padding:12px;border-radius:10px;border-left:4px solid #4caf50;">
+              📍 使用上次的位置：<strong>${userCoords.address}</strong><br>
+              <small>直接輸入想吃什麼即可。如需更換位置，點上方「修正」或「清除」。</small>
+            </div>
+          `);
+        } else {
+          addMessage(`
+            <div style="color: #2c5aa0; background: #e3f2fd; padding: 15px; border-radius: 12px; border-left: 4px solid #2196f3;">
+              <strong>🤖 歡迎使用 AI 午餐推薦系統！</strong><br><br>
+              <strong>📍 點左下角的定位按鈕</strong>，自動取得您的位置，之後只要說想吃什麼就好。<br><br>
+              <strong>💡 也可以手動輸入：</strong><br>
+              • 地標名稱：台北101、西門町<br>
+              • 詳細地址：台北市信義區<br>
+              • Google Maps 分享連結<br><br>
+              <small>💬 或直接開始：「台北車站附近的拉麵店」「200元以內的便當」</small>
+            </div>
+          `);
+        }
       }, 500);
 
-      // Auto-request geolocation on first visit
+      // Auto-request geolocation on first visit (only if user hasn't set a manual location)
       setTimeout(() => {
-        if (!userCoords && navigator.geolocation) {
+        if (!userCoords && !localStorage.getItem('manual_location') && navigator.geolocation) {
           requestGeolocation();
         }
       }, 1500);
