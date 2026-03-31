@@ -717,7 +717,15 @@ async def chat_recommendation_stream(message: str = None):
                         None,
                         lambda: calculate_real_distances(all_restaurants, search_location),
                     )
-                    # Sort by real distance
+                    # Filter by max distance + sort
+                    before_count = len(all_restaurants)
+                    all_restaurants = [
+                        r for r in all_restaurants
+                        if r.get("distance_km") is None or r.get("distance_km") <= max_distance_km
+                    ]
+                    filtered_count = before_count - len(all_restaurants)
+                    if filtered_count > 0:
+                        logger.info("Filtered %d restaurants beyond %.1fkm", filtered_count, max_distance_km)
                     all_restaurants.sort(key=lambda r: r.get("distance_km") or 999)
                 except Exception as e:
                     logger.warning("Distance calculation failed: %s", e)
