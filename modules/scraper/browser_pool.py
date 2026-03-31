@@ -250,5 +250,25 @@ class SearchCache:
 # ---------------------------------------------------------------------------
 # Global singleton instances
 # ---------------------------------------------------------------------------
-browser_pool = BrowserPool(pool_size=6)
+# Lazy-initialized singleton — don't create Chrome on import
+_browser_pool_instance = None
+_browser_pool_lock = threading.Lock()
+
+def _get_browser_pool():
+    global _browser_pool_instance
+    if _browser_pool_instance is None:
+        with _browser_pool_lock:
+            if _browser_pool_instance is None:
+                _browser_pool_instance = BrowserPool(pool_size=2)
+    return _browser_pool_instance
+
+class _LazyBrowserPool:
+    """Proxy that delays BrowserPool creation until first use."""
+    def get_browser(self):
+        return _get_browser_pool().get_browser()
+    def close_all(self):
+        if _browser_pool_instance:
+            _browser_pool_instance.close_all()
+
+browser_pool = _LazyBrowserPool()
 search_cache = SearchCache()
