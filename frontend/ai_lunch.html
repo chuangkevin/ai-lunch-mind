@@ -717,121 +717,128 @@
       userInput.value = '';
       sendButton.disabled = true;
 
-      // 添加載入訊息
-      const loadingMsg = addLoadingMessage();
+      // Create a thinking container that updates in-place
+      const thinkingDiv = document.createElement('div');
+      thinkingDiv.className = 'message bot';
+      thinkingDiv.innerHTML = '<div class="message-content"><div class="loading"></div> 正在分析...</div>';
+      chatMessages.appendChild(thinkingDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
 
-      try {
-        // 第一階段：獲取搜尋計劃
-        console.log('🔍 第一階段：獲取搜尋計劃...');
-        const planResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(fullMessage)}&phase=start`);
-        const planData = await planResponse.json();
-        
-        removeLoadingMessage();
-        
-        if (!planResponse.ok) {
-          throw new Error(planData.detail || '搜尋計劃生成失敗');
+      // Container for restaurant cards (inserted on first restaurant event)
+      const restaurantContainer = document.createElement('div');
+      let restaurantContainerInserted = false;
+
+      const url = `/chat-recommendation-stream?message=${encodeURIComponent(fullMessage)}`;
+      const eventSource = new EventSource(url);
+
+      eventSource.addEventListener('thinking', (e) => {
+        const data = JSON.parse(e.data);
+        thinkingDiv.innerHTML = `<div class="message-content">🤔 ${data.message}</div>`;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+
+      eventSource.addEventListener('weather', (e) => {
+        const data = JSON.parse(e.data);
+        let weatherHtml = '<div class="message-content">';
+        weatherHtml += '<div class="weather-summary" style="margin:0;">';
+        if (data.temperature !== null && data.temperature !== undefined) {
+          weatherHtml += `🌡️ ${data.temperature}°C`;
         }
-        
-        // 檢查是否需要位置資訊
-        if (planData.need_location) {
-          let responseHtml = `
-            <div style="color: #856404; background: #fff3cd; padding: 12px; border-radius: 8px; border: 1px solid #ffeaa7;">
-              <strong>🗺️ ${planData.message}</strong><br><br>
-              <strong>💡 建議格式：</strong><br>
-          `;
-          planData.suggestions.forEach(suggestion => {
-            responseHtml += `• ${suggestion}<br>`;
-          });
-          responseHtml += `</div>`;
-          
-          addMessage(responseHtml);
-          return;
+        if (data.humidity !== null && data.humidity !== undefined) {
+          weatherHtml += ` | 💧 ${data.humidity}%`;
         }
-        
-        // 顯示搜尋計劃
-        if (planData.phase === 'plan' && planData.search_plan) {
-          let planHtml = '';
-          
-          // 添加天氣摘要
-          if (planData.weather_info) {
-            planHtml += formatWeatherSummary(planData.weather_info);
-          }
-          
-          // 添加搜尋計劃
-          planHtml += `<div style="background: #e8f4fd; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 12px; margin: 10px 0;">
-            <strong>[PLAN] 搜尋計劃：</strong><br>
-            ${planData.search_plan.replace(/\n/g, '<br>')}
-          </div>`;
-          
-          addMessage(planHtml);
-          
-          // 短暫延遲後開始第二階段
-          setTimeout(async () => {
-            // 添加第二階段載入訊息
-            const searchLoadingMsg = addLoadingMessage();
-            
-            try {
-              // 第二階段：執行實際搜尋
-              console.log('🔍 第二階段：執行餐廳搜尋...');
-              const searchResponse = await fetch(`/chat-recommendation?message=${encodeURIComponent(message)}&phase=search`);
-              const searchData = await searchResponse.json();
-              
-              removeLoadingMessage();
-              
-              if (!searchResponse.ok) {
-                throw new Error(searchData.detail || '餐廳搜尋失敗');
-              }
-              
-              // 顯示搜尋結果
-              let searchHtml = '';
-              
-              // 添加推薦摘要
-              if (searchData.recommendation_summary) {
-                searchHtml += `<div class="recommendation-summary">
-                  <strong>📊 推薦摘要：</strong><br>${searchData.recommendation_summary}
-                </div>`;
-              }
-              
-              // 添加餐廳推薦
-              if (searchData.restaurants && searchData.restaurants.length > 0) {
-                searchHtml += `<div style="margin: 15px 0;"><strong>🎯 為您推薦 ${searchData.restaurants.length} 家餐廳：</strong></div>`;
-                
-                searchData.restaurants.forEach(restaurant => {
-                  searchHtml += formatRestaurantCard(restaurant);
-                });
-              } else {
-                searchHtml += `<div style="color: #856404; background: #fff3cd; padding: 12px; border-radius: 8px;">
-                  😅 抱歉，在指定範圍內沒有找到符合條件的餐廳。<br>
-                  建議您擴大搜尋範圍或嘗試其他關鍵字。
-                </div>`;
-              }
-              
-              addMessage(searchHtml);
-              
-            } catch (searchError) {
-              removeLoadingMessage();
-              addMessage(`<div style="color: #721c24; background: #f8d7da; padding: 12px; border-radius: 8px; border: 1px solid #f5c6cb;">
-                ❌ <strong>餐廳搜尋失敗：</strong>${searchError.message}<br><br>
-                請稍後再試或嘗試其他關鍵字。
-              </div>`);
-            }
-          }, 1000); // 1秒延遲，讓用戶看到搜尋計劃
-          
+        if (data.sweat_index !== null && data.sweat_index !== undefined) {
+          weatherHtml += ` | 😅 流汗指數 ${data.sweat_index}/10`;
+        }
+        weatherHtml += '</div></div>';
+        // Insert weather as a new message before thinking
+        const weatherDiv = document.createElement('div');
+        weatherDiv.className = 'message bot';
+        weatherDiv.innerHTML = weatherHtml;
+        chatMessages.insertBefore(weatherDiv, thinkingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+
+      eventSource.addEventListener('intent', (e) => {
+        const data = JSON.parse(e.data);
+        let html = '<div class="message-content">';
+        html += `<strong>📍 位置：</strong>${data.location || '未指定'}<br>`;
+        if (data.keywords && data.keywords.length > 0) {
+          html += `<strong>🔑 關鍵字：</strong>${data.keywords.join(', ')}<br>`;
+        }
+        if (data.secondary_keywords && data.secondary_keywords.length > 0) {
+          html += `<strong>🔄 備選：</strong>${data.secondary_keywords.join(', ')}<br>`;
+        }
+        if (data.budget && data.budget.max) {
+          html += `<strong>💰 預算：</strong>${data.budget.max}元以內<br>`;
+        }
+        if (data.source === 'gemini') {
+          html += '<small style="color:#4caf50">✨ AI 分析</small>';
         } else {
-          // 如果不是計劃階段，直接顯示結果
-          throw new Error('搜尋計劃格式異常');
+          html += '<small style="color:#ff9800">⚡ 快速分析</small>';
         }
-        
-      } catch (error) {
-        removeLoadingMessage();
-        addMessage(`<div style="color: #721c24; background: #f8d7da; padding: 12px; border-radius: 8px; border: 1px solid #f5c6cb;">
-          ❌ <strong>推薦失敗：</strong>${error.message}<br><br>
-          請檢查輸入格式，或稍後再試。
-        </div>`);
-      } finally {
+        html += '</div>';
+        thinkingDiv.innerHTML = html;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+
+      eventSource.addEventListener('restaurant', (e) => {
+        const data = JSON.parse(e.data);
+        const card = formatRestaurantCard(data.restaurant);
+        const cardWrapper = document.createElement('div');
+        cardWrapper.innerHTML = card;
+        restaurantContainer.appendChild(cardWrapper.firstElementChild || cardWrapper);
+        if (!restaurantContainerInserted) {
+          // Insert heading + container after thinking div
+          const heading = document.createElement('div');
+          heading.className = 'message bot';
+          heading.innerHTML = '<div class="message-content"><strong>🎯 推薦餐廳：</strong></div>';
+          chatMessages.appendChild(heading);
+          chatMessages.appendChild(restaurantContainer);
+          restaurantContainerInserted = true;
+        }
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+
+      eventSource.addEventListener('done', (e) => {
+        const data = JSON.parse(e.data);
+        const summary = document.createElement('div');
+        summary.className = 'message bot';
+        let timingText = '';
+        if (data.timing && data.timing.total) {
+          timingText = ` (${data.timing.total.toFixed(1)}秒)`;
+        }
+        summary.innerHTML = `<div class="message-content">✅ 共推薦 ${data.total} 間餐廳${timingText}</div>`;
+        chatMessages.appendChild(summary);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
         sendButton.disabled = false;
         userInput.focus();
-      }
+        eventSource.close();
+      });
+
+      eventSource.addEventListener('error', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          thinkingDiv.innerHTML = `<div class="message-content" style="color:red">❌ ${data.message}</div>`;
+        } catch {
+          // Server-sent error event without parseable data — connection lost
+          thinkingDiv.innerHTML = '<div class="message-content" style="color:red">❌ 連線中斷</div>';
+        }
+        sendButton.disabled = false;
+        userInput.focus();
+        eventSource.close();
+      });
+
+      eventSource.onerror = () => {
+        // The browser fires onerror when EventSource connection closes or fails.
+        // If we already handled a 'done' or 'error' event, the source is already
+        // closed, so this is a no-op. Otherwise treat as unexpected disconnect.
+        if (eventSource.readyState === EventSource.CLOSED) return;
+        thinkingDiv.innerHTML = '<div class="message-content" style="color:red">❌ 連線中斷，請稍後再試</div>';
+        sendButton.disabled = false;
+        userInput.focus();
+        eventSource.close();
+      };
     }
     
     function sendQuickMessage(message) {

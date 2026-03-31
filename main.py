@@ -8,7 +8,7 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -542,6 +542,129 @@ async def staged_chat_recommendation(request: Request):
     except Exception as e:
         print(f"[API ERROR] 分階段推薦失敗: {e}")
         raise HTTPException(status_code=500, detail=f"推薦失敗: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# SSE Streaming Recommendation Endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/chat-recommendation-stream")
+async def chat_recommendation_stream(message: str = None):
+    """SSE streaming endpoint for real-time recommendation progress."""
+    if not message:
+        raise HTTPException(status_code=400, detail="Missing message")
+
+    async def event_stream():
+        import json
+        import asyncio
+        import time
+
+        def send_event(event_type, data):
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        loop = asyncio.get_event_loop()
+
+        # Step 1: Intent Analysis
+        yield send_event("thinking", {"step": "intent", "message": "分析您的需求..."})
+
+        try:
+            from modules.ai.intent_analyzer import analyze_intent
+            from modules.sweat_index import query_sweat_index_by_location
+            from modules.recommendation_engine import _extract_weather_data
+            from datetime import datetime
+
+            current_hour = datetime.now().hour
+            weather_data = None
+            sweat_index = None
+
+            # Weather
+            try:
+                sweat_result = await loop.run_in_executor(
+                    None, lambda: query_sweat_index_by_location(message)
+                )
+                if "error" not in sweat_result:
+                    weather_data, sweat_index = _extract_weather_data(sweat_result)
+                    yield send_event("weather", {
+                        "temperature": weather_data.get("temperature"),
+                        "humidity": weather_data.get("humidity"),
+                        "sweat_index": sweat_index,
+                    })
+            except Exception:
+                yield send_event("thinking", {"step": "weather", "message": "天氣查詢跳過"})
+
+            # Intent
+            intent = await loop.run_in_executor(
+                None,
+                lambda: analyze_intent(
+                    user_input=message,
+                    weather_data=weather_data,
+                    current_hour=current_hour,
+                ),
+            )
+
+            location = intent.get("location", "")
+            keywords = intent.get("primary_keywords", [])
+            secondary = intent.get("secondary_keywords", [])
+            budget = intent.get("budget")
+
+            yield send_event("intent", {
+                "location": location,
+                "keywords": keywords,
+                "secondary_keywords": secondary,
+                "budget": budget,
+                "source": intent.get("_source", "unknown"),
+            })
+
+            # Step 2: Search
+            kw_preview = ", ".join(keywords[:3]) if keywords else "餐廳"
+            yield send_event("thinking", {"step": "search", "message": f"搜尋中：{kw_preview}..."})
+
+            # Run full pipeline
+            gen_rec = _get_generate_recommendation()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: gen_rec(location="", user_input=message, max_results=10),
+                ),
+                timeout=25,
+            )
+
+            if result.get("success") and result.get("restaurants"):
+                restaurants = result["restaurants"]
+                yield send_event("thinking", {
+                    "step": "scoring",
+                    "message": f"找到 {len(restaurants)} 間餐廳，評分排序中...",
+                })
+
+                # Send restaurants one by one
+                for i, restaurant in enumerate(restaurants):
+                    _enrich_restaurant(restaurant)
+                    yield send_event("restaurant", {"index": i, "restaurant": restaurant})
+                    await asyncio.sleep(0.1)
+
+                yield send_event("done", {
+                    "total": len(restaurants),
+                    "timing": result.get("timing"),
+                    "search_sources": result.get("search_sources"),
+                })
+            else:
+                yield send_event("error", {
+                    "message": result.get("error", "沒有找到餐廳，請換個說法試試"),
+                })
+
+        except asyncio.TimeoutError:
+            yield send_event("error", {"message": "搜尋超時，請稍後再試"})
+        except Exception as e:
+            yield send_event("error", {"message": f"推薦失敗: {str(e)}"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # 健康檢查 API 端點
