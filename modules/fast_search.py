@@ -14,6 +14,59 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 
+def calculate_real_distances(
+    restaurants: List[Dict],
+    user_location: str,
+) -> List[Dict]:
+    """Calculate real distances using geopy geocoding.
+
+    Geocodes user location and each restaurant address, then calculates
+    haversine distance. Walking time estimated at 5km/h with 1.3x factor.
+    """
+    try:
+        from geopy.geocoders import Nominatim
+        from geopy.distance import geodesic
+
+        geolocator = Nominatim(user_agent="ai-lunch-mind", timeout=5)
+
+        # Geocode user location
+        user_geo = geolocator.geocode(user_location + " 台灣", language="zh-TW")
+        if not user_geo:
+            logger.warning("Cannot geocode user location: %s", user_location)
+            return restaurants
+
+        user_coords = (user_geo.latitude, user_geo.longitude)
+        logger.info("User location geocoded: %s -> %s", user_location, user_coords)
+
+        for r in restaurants:
+            addr = r.get("address", "")
+            if not addr or addr.endswith("附近"):
+                # Try geocoding by name + location
+                addr = r.get("name", "") + " " + user_location
+
+            try:
+                rest_geo = geolocator.geocode(addr + " 台灣", language="zh-TW")
+                if rest_geo:
+                    rest_coords = (rest_geo.latitude, rest_geo.longitude)
+                    dist_km = geodesic(user_coords, rest_coords).kilometers
+                    walking_km = dist_km * 1.3  # Walking factor
+                    walking_minutes = round(walking_km / 5 * 60)  # 5 km/h
+
+                    r["distance_km"] = round(dist_km, 2)
+                    r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
+                    r["walking_minutes"] = walking_minutes
+                    logger.info("  %s: %.2fkm, ~%dmin walk", r.get("name"), dist_km, walking_minutes)
+            except Exception as e:
+                logger.warning("  Geocode failed for %s: %s", r.get("name"), e)
+
+    except ImportError:
+        logger.warning("geopy not available for distance calculation")
+    except Exception as e:
+        logger.warning("Distance calculation failed: %s", e)
+
+    return restaurants
+
+
 def search_restaurants_fast(
     keyword: str,
     location: str,
@@ -202,8 +255,6 @@ def enrich_with_gemini(
     "price_level": "$150-250",
     "food_type": "日式拉麵",
     "reason": "推薦理由（一句話）",
-    "walking_minutes": 5,
-    "walking_distance": "約400m",
     "is_new": false
   }}
 ]
@@ -213,7 +264,7 @@ def enrich_with_gemini(
 - 只推薦你確定真實存在的餐廳
 - 地址要盡量準確
 - 價格要符合台灣物價
-- walking_minutes 和 walking_distance 是從 {location} 步行到該餐廳的估計時間和距離"""
+- 不要估算步行距離或時間，距離由系統計算"""
 
     try:
         client = genai.Client(api_key=api_key)
@@ -242,8 +293,7 @@ def enrich_with_gemini(
                 rest["estimated_price"] = info.get("price_level")
                 rest["food_type"] = info.get("food_type", rest.get("food_type", ""))
                 rest["ai_reason"] = info.get("reason", "")
-                rest["walking_minutes"] = info.get("walking_minutes")
-                rest["walking_distance"] = info.get("walking_distance", "")
+                # walking_minutes/walking_distance set by calculate_real_distances, not Gemini
 
         # Add new restaurants from Gemini
         for name, info in enriched_by_name.items():
@@ -256,8 +306,7 @@ def enrich_with_gemini(
                     "estimated_price": info.get("price_level"),
                     "food_type": info.get("food_type", ""),
                     "ai_reason": info.get("reason", ""),
-                    "walking_minutes": info.get("walking_minutes"),
-                    "walking_distance": info.get("walking_distance", ""),
+                    # walking data filled by calculate_real_distances
                     "maps_url": f"https://www.google.com/maps/search/{quote(name)}+{quote(location)}",
                     "source": "gemini_supplement",
                 })

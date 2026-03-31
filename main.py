@@ -692,7 +692,20 @@ async def chat_recommendation_stream(message: str = None):
                     r.setdefault("relevance_score", 7.0)
                     r.setdefault("estimated_price", r.get("price_level"))
 
-                # Phase 3: Social media search
+                # Phase 3a: Calculate real distances
+                yield send_event("thinking", {"step": "distance", "message": "計算步行距離..."})
+                try:
+                    from modules.fast_search import calculate_real_distances
+                    all_restaurants = await loop.run_in_executor(
+                        None,
+                        lambda: calculate_real_distances(all_restaurants, search_location),
+                    )
+                    # Sort by real distance
+                    all_restaurants.sort(key=lambda r: r.get("distance_km") or 999)
+                except Exception as e:
+                    logger.warning("Distance calculation failed: %s", e)
+
+                # Phase 3b: Social media search
                 yield send_event("thinking", {"step": "social", "message": "搜尋 Dcard/Threads/PTT 討論..."})
 
                 try:
