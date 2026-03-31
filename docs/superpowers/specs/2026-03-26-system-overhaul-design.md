@@ -355,50 +355,67 @@ New fields in recommendation API response:
 
 ### New Dependencies
 
-- `google-generativeai` (Gemini SDK)
-- Remove: `openai`
-- Remove: `anthropic` (if present, was used as Claude fallback in ai_validator.py)
+- `google-genai>=1.0.0` (Google's new Gemini SDK, replaces deprecated `google-generativeai`)
+- `googlesearch-python` (HTTP-based Google search, no Selenium needed)
+- `geopy` (geocoding + distance calculation)
+- Remove: `openai`, `anthropic`
 
 ### Gemini Model
 
-- Model: `gemini-2.5-flash` for all AI calls (intent analysis + restaurant scoring)
-- Temperature: 0.1 for intent analysis (deterministic), 0.3 for scoring (slight creativity for reasons)
-- Response format: JSON mode where supported
+- Model: `gemini-2.5-flash` for intent analysis + restaurant enrichment
+- Model: `gemini-2.0-flash-lite` for lightweight extraction tasks
+- Temperature: 0.1 for intent analysis, 0.3 for enrichment
+- Response format: JSON mode via `response_mime_type="application/json"`
+- Per-client thread-safe keys: `genai.Client(api_key=key)`
 
 ---
 
 ## Implementation Status
 
-**Completed: 2026-03-26**
+**Initial implementation: 2026-03-26**
+**Live testing & bug fixes: 2026-03-31**
 
-All sections implemented and verified through multi-round AI review panel (Echo/Lisa/Bob/Nova).
+### Architecture Changes from Live Testing
+
+The original design used Selenium for Google Maps search. Live testing revealed this was too slow (30s+ timeout). The architecture was revised:
+
+**Search pipeline (before):** Selenium Google Maps → parse HTML → extract restaurants
+**Search pipeline (after):** googlesearch-python HTTP → Gemini enrichment → geopy distance
+
+**SSE Streaming:** Added Server-Sent Events endpoint (`/chat-recommendation-stream`) that streams each phase to the frontend in real-time:
+1. Intent analysis (Gemini) → show AI analysis bubble
+2. Weather/sweat index → show distance reasoning
+3. Google HTTP search → find real restaurants
+4. Gemini enrichment → add ratings, prices, reasons
+5. Geopy distance calculation → real walking distance
+6. Social media search (Dcard/Threads/PTT) → community mentions
+7. Stream restaurant cards one by one
 
 | Component | File(s) | Status | Tests |
 |-----------|---------|--------|-------|
 | Gemini API Key Pool | `modules/ai/gemini_pool.py` | Done | 10 tests |
 | Intent Analyzer | `modules/ai/intent_analyzer.py` | Done | 6 tests |
 | Restaurant Scorer | `modules/ai/restaurant_scorer.py` | Done | 19 tests |
-| Browser Pool | `modules/scraper/browser_pool.py` | Done | - |
-| CSS Selectors | `modules/scraper/selectors.py` | Done | - |
-| Google Maps Scraper | `modules/scraper/google_maps.py` | Done | - |
-| Google Search Scraper | `modules/scraper/google_search.py` | Done | - |
-| PTT Scraper | `modules/scraper/ptt_scraper.py` | Done | - |
-| Geocoding | `modules/geo/geocoding.py` | Done | - |
-| Distance | `modules/geo/distance.py` | Done | - |
-| Recommendation Engine | `modules/recommendation_engine.py` | Done | 7 tests |
-| Main API | `main.py` | Done | - |
-| Settings Page | `frontend/settings.html` | Done | - |
-| Chat UI Update | `frontend/ai_lunch.html` | Done | - |
+| Fast Search (HTTP) | `modules/fast_search.py` | Done | - |
+| Social Media Search | `modules/fast_search.py` | Done | - |
+| Real Distance (geopy) | `modules/fast_search.py` | Done | - |
+| SSE Streaming | `main.py` | Done | - |
 | Browser Geolocation | `frontend/ai_lunch.html` | Done | - |
+| 3-Tier Location | `frontend/ai_lunch.html` | Done | - |
+| Walking Directions | `frontend/ai_lunch.html` | Done | - |
+| Settings Page | `frontend/settings.html` | Done | - |
 | Integration Tests | `test_system_overhaul.py` | 43/43 pass | - |
 
-### Review Issues Resolved
-- Thread-safe per-model api_key (no global genai.configure)
-- auto_retry uses tried_keys set (no TOCTOU race)
-- GeminiPoolExhausted custom exception
-- Social proof weighted scoring per spec
-- Google Maps $$ price notation support
-- CJK fuzzy matching 2-char minimum
-- Capped social proof lookups (max 3, deadline guard)
-- Google Search timeout fixed (0.5s sleep)
-- Deduplicated _parse_price_avg
+### Bugs Found & Fixed During Live Testing (2026-03-31)
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| All Gemini keys invalid | `google-generativeai` SDK doesn't support per-model `api_key` | Switched to `google-genai` package |
+| cp950 encoding crash | Emoji in print() on Windows | `sys.stdout.reconfigure(encoding='utf-8')` |
+| Server hang on search | Sync endpoint blocks uvicorn event loop | `async def` + `run_in_executor` + 30s timeout |
+| Search query nonsensical | Raw user message passed as Maps query | AI-extracted clean location used instead |
+| Chrome window pops up | Old browser_pool.py had no `--headless` | Forced headless on all paths |
+| 30s timeout on search | Selenium too slow for real-time UX | Replaced with HTTP search + Gemini enrichment |
+| Walking distance wrong | Gemini hallucinated 5min/400m for 56min/3.8km | Real geopy geocoding + geodesic distance |
+| No thinking process | Frontend showed "分析中" then nothing | SSE streaming with step-by-step events |
+| Double welcome message | localStorage location + auto-GPS conflict | Skip auto-GPS when manual location saved |
