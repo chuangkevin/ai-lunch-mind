@@ -44,18 +44,29 @@ def calculate_real_distances(
             return restaurants
 
         user_coords = (user_geo.latitude, user_geo.longitude)
-        logger.info("User: %s -> (%.4f, %.4f)", user_location, *user_coords)
+        # Extract area name from geocoded address for prefixing short addresses
+        area_prefix = ""
+        if user_geo.address:
+            # ArcGIS returns addresses like "明志科技大學, 泰山區, 新北市, Taiwan"
+            # Extract the city+district portion
+            parts = [p.strip() for p in user_geo.address.split(",")]
+            for p in parts:
+                if re.search(r'[市縣]$', p):
+                    area_prefix = p + area_prefix
+                elif re.search(r'[區鎮鄉]$', p):
+                    area_prefix = p
+        logger.info("User: %s -> (%.4f, %.4f), area=%s", user_location, *user_coords, area_prefix)
 
         for r in restaurants:
             addr = r.get("address", "")
 
             # Skip if address is just "附近"
             if not addr or addr.endswith("附近"):
-                addr = r.get("name", "") + " " + user_location
+                addr = r.get("name", "") + " " + (area_prefix or user_location)
 
-            # If address is short (just road name, no city/district), prepend user location for context
-            if addr and not re.search(r'[市縣區鎮鄉]', addr):
-                addr = user_location + " " + addr
+            # If address is short (just road name, no city/district), prepend area
+            if addr and not re.search(r'[市縣區鎮鄉]', addr) and area_prefix:
+                addr = area_prefix + addr
 
             try:
                 rest_geo = geolocator.geocode(addr)

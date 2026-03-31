@@ -12,6 +12,9 @@ if sys.platform == 'win32':
         except Exception:
             pass
 
+import logging
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -718,11 +721,23 @@ async def chat_recommendation_stream(message: str = None):
                         lambda: calculate_real_distances(all_restaurants, search_location),
                     )
                     # Filter by max distance + sort
+                    # Filter: try preferred distance, expand if nothing found
+                    within = [r for r in all_restaurants if r.get("distance_km") is not None and r.get("distance_km") <= max_distance_km]
+                    unknown = [r for r in all_restaurants if r.get("distance_km") is None]
+
                     before_count = len(all_restaurants)
-                    all_restaurants = [
-                        r for r in all_restaurants
-                        if r.get("distance_km") is None or r.get("distance_km") <= max_distance_km
-                    ]
+                    if within:
+                        all_restaurants = within + unknown
+                    elif not within and all_restaurants:
+                        # Nothing within preferred range — show closest available
+                        known = [r for r in all_restaurants if r.get("distance_km") is not None]
+                        known.sort(key=lambda r: r["distance_km"])
+                        all_restaurants = known[:5] + unknown
+                        if known:
+                            yield send_event("thinking", {
+                                "step": "distance_expanded",
+                                "message": f"{int(max_distance_km*1000)}m 內沒有結果，顯示最近的 {len(known[:5])} 間",
+                            })
                     filtered_count = before_count - len(all_restaurants)
                     if filtered_count > 0:
                         logger.info("Filtered %d restaurants beyond %.1fkm", filtered_count, max_distance_km)
