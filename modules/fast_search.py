@@ -226,10 +226,11 @@ def enrich_with_gemini(
 我已搜尋到以下餐廳：
 {json.dumps(existing_names, ensure_ascii=False)}
 
-請做三件事：
+請做兩件事：
 1. 移除不是餐廳的項目（如大樓、公司、公園等），標記 "remove": true
 2. 為每間已知餐廳補充資訊（如果你知道的話），特別是完整地址
-3. 再補充 3-5 間你確定在 {location} 附近真實存在的相關餐廳
+
+重要：不要新增任何餐廳，只處理上面列出的這些。
 
 回傳 JSON 陣列：
 [
@@ -288,21 +289,8 @@ def enrich_with_gemini(
                 rest["food_type"] = info.get("food_type", rest.get("food_type", ""))
                 rest["ai_reason"] = info.get("reason", "")
 
-        # Add new restaurants from Gemini
-        for name, info in enriched_by_name.items():
-            if info.get("is_new", True):
-                restaurants.append({
-                    "name": name,
-                    "address": info.get("address", f"{location}附近"),
-                    "rating": info.get("rating"),
-                    "price_level": info.get("price_level"),
-                    "estimated_price": info.get("price_level"),
-                    "food_type": info.get("food_type", ""),
-                    "ai_reason": info.get("reason", ""),
-                    # walking data filled by calculate_real_distances
-                    "maps_url": f"https://www.google.com/maps/search/{quote(name)}+{quote(location)}",
-                    "source": "gemini_supplement",
-                })
+        # DO NOT add Gemini-generated restaurants — they are hallucinated.
+        # Gemini is only allowed to enrich existing Google Maps results.
 
         return restaurants
 
