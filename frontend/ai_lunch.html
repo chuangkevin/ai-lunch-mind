@@ -573,47 +573,40 @@
     
     function formatRestaurantCard(restaurant) {
       let infoItems = [];
-      
+
       if (restaurant.rating) {
         infoItems.push(`<span>⭐ ${restaurant.rating}</span>`);
       }
-      if (restaurant.distance_km !== undefined && restaurant.distance_km !== null) {
-        if (restaurant.google_maps_url) {
-          // 有 Google Maps URL，顯示為可點擊的連結
-          let distanceText = restaurant.distance || `${restaurant.distance_km}km`;
-          if (restaurant.walking_minutes) {
-            distanceText = `${restaurant.walking_minutes}分 (${distanceText})`;
-          }
-          infoItems.push(`<span>📍 <a href="${restaurant.google_maps_url}" target="_blank" class="distance-link">${distanceText}</a></span>`);
-        } else {
-          // 沒有 Google Maps URL，顯示普通文字
-          infoItems.push(`<span>📍 ${restaurant.distance_km}km</span>`);
-        }
+
+      // Walking distance
+      if (restaurant.walking_minutes || restaurant.walking_distance) {
+        let distText = '';
+        if (restaurant.walking_minutes) distText += `🚶 ${restaurant.walking_minutes}分`;
+        if (restaurant.walking_distance) distText += ` (${restaurant.walking_distance})`;
+        infoItems.push(`<span>${distText.trim()}</span>`);
+      } else if (restaurant.distance_km !== undefined && restaurant.distance_km !== null) {
+        infoItems.push(`<span>📍 ${restaurant.distance_km}km</span>`);
       }
+
       if (restaurant.price_level) {
         infoItems.push(`<span>💰 ${restaurant.price_level}</span>`);
       }
-      if (restaurant.recommendation_score !== undefined) {
-        infoItems.push(`<span class="recommendation-score">🎯 推薦度 ${restaurant.recommendation_score}%</span>`);
-      }
-      if (restaurant.food_temperature) {
-        const tempEmoji = restaurant.food_temperature === 'hot' ? '🔥' : 
-                         restaurant.food_temperature === 'cold' ? '❄️' : '🍽️';
-        infoItems.push(`<span>${tempEmoji} ${restaurant.search_keyword || '一般'}</span>`);
-      }
-      
-      // New fields: estimated price and relevance score
-      if (restaurant.estimated_price) {
-        infoItems.push(`<span class="estimated-price-tag">💰 約$${restaurant.estimated_price}</span>`);
+      if (restaurant.estimated_price && restaurant.estimated_price !== restaurant.price_level) {
+        infoItems.push(`<span class="estimated-price-tag">約$${restaurant.estimated_price}</span>`);
       }
       if (restaurant.relevance_score !== undefined && restaurant.relevance_score !== null) {
         infoItems.push(`<span class="relevance-badge">相關度 ${restaurant.relevance_score}/10</span>`);
       }
 
-      // Social proof badge
+      // Social proof badge with platform names
       let socialProofHtml = '';
       if (restaurant.social_proof) {
-        socialProofHtml = '<span class="social-proof-badge">💬 PTT/部落格推薦</span>';
+        const sp = restaurant.social_proof;
+        if (sp.platforms && sp.platforms.length > 0) {
+          socialProofHtml = `<span class="social-proof-badge">💬 ${sp.platforms.join('/')} 熱議</span>`;
+        } else {
+          socialProofHtml = '<span class="social-proof-badge">💬 社群推薦</span>';
+        }
       }
 
       let card = `
@@ -633,17 +626,20 @@
         card += `<div class="restaurant-ai-reason">🤖 ${restaurant.ai_reason}</div>`;
       }
 
-      if (restaurant.weather_warning) {
-        card += `<div class="weather-warning">⚠️ ${restaurant.weather_warning}</div>`;
+      // Social links
+      if (restaurant.social_proof && restaurant.social_proof.mentions) {
+        let linksHtml = restaurant.social_proof.mentions.map(m =>
+          `<a href="${m.url}" target="_blank" style="color:#7c4dff;font-size:0.8em;margin-right:8px;">${m.platform}</a>`
+        ).join('');
+        card += `<div style="margin-top:4px;">${linksHtml}</div>`;
       }
 
+      // Google Maps link
       if (restaurant.maps_url) {
-        card += `<div class="restaurant-url">
-          <a href="${restaurant.maps_url}" target="_blank">📱 在 Google Maps 中查看</a>
-        </div>`;
+        card += `<div style="margin-top: 8px;"><a href="${restaurant.maps_url}" target="_blank" style="color: #1a73e8; text-decoration: none; font-size: 0.85em;">🗺️ 在 Google Maps 中查看</a></div>`;
       }
 
-      card += `</div>`;
+      card += '</div>';
       return card;
     }
     

@@ -646,7 +646,7 @@ async def chat_recommendation_stream(message: str = None):
             yield send_event("thinking", {"step": "search", "message": f"搜尋 {search_location} 的 {kw_preview}..."})
 
             # Phase 2a: Fast Google search for real restaurant data
-            from modules.fast_search import search_restaurants_fast, enrich_with_gemini
+            from modules.fast_search import search_restaurants_fast, enrich_with_gemini, search_social_mentions
             from urllib.parse import quote
 
             all_restaurants = []
@@ -692,10 +692,43 @@ async def chat_recommendation_stream(message: str = None):
                     r.setdefault("relevance_score", 7.0)
                     r.setdefault("estimated_price", r.get("price_level"))
 
+                # Phase 3: Social media search
+                yield send_event("thinking", {"step": "social", "message": "搜尋 Dcard/Threads/PTT 討論..."})
+
+                try:
+                    restaurant_names = [r.get("name", "") for r in all_restaurants if r.get("name")]
+                    social_mentions = await loop.run_in_executor(
+                        None,
+                        lambda: search_social_mentions(restaurant_names, search_location),
+                    )
+                    # Attach social mentions to restaurants
+                    for r in all_restaurants:
+                        name = r.get("name", "")
+                        if name in social_mentions and social_mentions[name]:
+                            platforms = list(set(m["platform"] for m in social_mentions[name]))
+                            r["social_proof"] = {
+                                "platforms": platforms,
+                                "mentions": social_mentions[name][:3],
+                                "count": len(social_mentions[name]),
+                            }
+                    social_count = sum(1 for r in all_restaurants if r.get("social_proof"))
+                    if social_count > 0:
+                        yield send_event("thinking", {"step": "social_done", "message": f"找到 {social_count} 間有社群討論"})
+                except Exception as e:
+                    logger.warning("Social search failed: %s", e)
+
                 yield send_event("thinking", {
                     "step": "scoring",
                     "message": f"共 {len(all_restaurants)} 間餐廳，排序中...",
                 })
+
+                # Sort: restaurants with social proof first, then by rating
+                all_restaurants.sort(
+                    key=lambda r: (
+                        0 if r.get("social_proof") else 1,
+                        -(r.get("rating") or 0),
+                    ),
+                )
 
                 for i, restaurant in enumerate(all_restaurants):
                     yield send_event("restaurant", {"index": i, "restaurant": restaurant})

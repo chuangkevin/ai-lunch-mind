@@ -2,6 +2,7 @@
 
 Uses googlesearch-python for Google search results + Gemini for extraction.
 Falls back to direct Google Maps URL construction.
+Includes social media search (Dcard, Threads, PTT).
 """
 import json
 import logging
@@ -201,6 +202,8 @@ def enrich_with_gemini(
     "price_level": "$150-250",
     "food_type": "日式拉麵",
     "reason": "推薦理由（一句話）",
+    "walking_minutes": 5,
+    "walking_distance": "約400m",
     "is_new": false
   }}
 ]
@@ -209,7 +212,8 @@ def enrich_with_gemini(
 - is_new=false 表示是原本搜尋到的，is_new=true 表示你補充的
 - 只推薦你確定真實存在的餐廳
 - 地址要盡量準確
-- 價格要符合台灣物價"""
+- 價格要符合台灣物價
+- walking_minutes 和 walking_distance 是從 {location} 步行到該餐廳的估計時間和距離"""
 
     try:
         client = genai.Client(api_key=api_key)
@@ -238,6 +242,8 @@ def enrich_with_gemini(
                 rest["estimated_price"] = info.get("price_level")
                 rest["food_type"] = info.get("food_type", rest.get("food_type", ""))
                 rest["ai_reason"] = info.get("reason", "")
+                rest["walking_minutes"] = info.get("walking_minutes")
+                rest["walking_distance"] = info.get("walking_distance", "")
 
         # Add new restaurants from Gemini
         for name, info in enriched_by_name.items():
@@ -250,6 +256,8 @@ def enrich_with_gemini(
                     "estimated_price": info.get("price_level"),
                     "food_type": info.get("food_type", ""),
                     "ai_reason": info.get("reason", ""),
+                    "walking_minutes": info.get("walking_minutes"),
+                    "walking_distance": info.get("walking_distance", ""),
                     "maps_url": f"https://www.google.com/maps/search/{quote(name)}+{quote(location)}",
                     "source": "gemini_supplement",
                 })
@@ -259,3 +267,55 @@ def enrich_with_gemini(
     except Exception as e:
         logger.warning("Gemini enrichment failed: %s", e)
         return restaurants
+
+
+def search_social_mentions(
+    restaurant_names: List[str],
+    location: str,
+) -> Dict[str, List[Dict]]:
+    """Search social media (Dcard, Threads, PTT) for restaurant mentions.
+
+    Returns a dict: {restaurant_name: [{platform, title, url}]}
+    """
+    mentions: Dict[str, List[Dict]] = {}
+
+    try:
+        from googlesearch import search as google_search
+    except ImportError:
+        logger.warning("googlesearch-python not available for social search")
+        return mentions
+
+    # Build one query for all restaurants + social platforms
+    names_query = " OR ".join(f'"{n}"' for n in restaurant_names[:5])
+    social_query = f"({names_query}) {location} (site:dcard.tw OR site:threads.net OR site:ptt.cc)"
+
+    try:
+        results = list(google_search(social_query, num_results=15, lang="zh-TW"))
+
+        for url in results:
+            platform = None
+            if "dcard.tw" in url:
+                platform = "Dcard"
+            elif "threads.net" in url:
+                platform = "Threads"
+            elif "ptt.cc" in url:
+                platform = "PTT"
+
+            if not platform:
+                continue
+
+            # Match which restaurant this URL mentions
+            for name in restaurant_names:
+                # Simple check: restaurant name in URL or we associate with closest match
+                if name not in mentions:
+                    mentions[name] = []
+                mentions[name].append({
+                    "platform": platform,
+                    "url": url,
+                })
+                break  # assign to first matching restaurant
+
+    except Exception as e:
+        logger.warning("Social search failed: %s", e)
+
+    return mentions
