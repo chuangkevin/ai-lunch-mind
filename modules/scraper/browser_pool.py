@@ -259,7 +259,7 @@ def _get_browser_pool():
     if _browser_pool_instance is None:
         with _browser_pool_lock:
             if _browser_pool_instance is None:
-                _browser_pool_instance = BrowserPool(pool_size=2)
+                _browser_pool_instance = BrowserPool(pool_size=3)
     return _browser_pool_instance
 
 class _LazyBrowserPool:

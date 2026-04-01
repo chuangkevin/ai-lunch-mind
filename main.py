@@ -670,18 +670,30 @@ async def chat_recommendation_stream(message: str = None):
             from urllib.parse import quote
 
             all_restaurants = []
-            for kw in keywords[:3]:
+
+            # Run all keyword searches in PARALLEL (not sequential)
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+            search_kws = keywords[:3]
+            with ThreadPoolExecutor(max_workers=len(search_kws)) as search_pool:
+                futures = {
+                    search_pool.submit(search_restaurants_fast, kw, search_location, 5): kw
+                    for kw in search_kws
+                }
                 try:
-                    results = await loop.run_in_executor(
-                        None,
-                        lambda k=kw: search_restaurants_fast(k, search_location, max_results=5),
-                    )
-                    for r in results:
-                        if not any(existing["name"] == r["name"] for existing in all_restaurants):
-                            r["food_type"] = kw
-                            all_restaurants.append(r)
-                except Exception as e:
-                    logger.warning("Fast search failed for '%s': %s", kw, e)
+                    for future in _as_completed(futures, timeout=15):
+                        kw = futures[future]
+                        try:
+                            results = future.result(timeout=1)
+                            for r in results:
+                                if not any(existing["name"] == r["name"] for existing in all_restaurants):
+                                    r["food_type"] = kw
+                                    all_restaurants.append(r)
+                            logger.info("Search '%s': %d results", kw, len(results))
+                        except Exception as e:
+                            logger.warning("Fast search failed for '%s': %s", kw, e)
+                except Exception:
+                    logger.warning("Some keyword searches timed out")
 
             yield send_event("thinking", {
                 "step": "search_done",
