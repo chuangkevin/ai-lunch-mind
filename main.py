@@ -665,43 +665,116 @@ async def chat_recommendation_stream(message: str = None):
 
             yield send_event("thinking", {"step": "search", "message": f"搜尋 {search_location} 的 {kw_preview}..."})
 
-            # Phase 2a: Fast Google search for real restaurant data
             from modules.fast_search import search_restaurants_fast, enrich_with_gemini, search_social_mentions
             from urllib.parse import quote
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
 
             all_restaurants = []
 
-            # Run all keyword searches in PARALLEL (not sequential)
-            from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+            # Strategy: Gemini recommends first (fast ~3s), Selenium searches in parallel
+            # If Selenium returns results, use those (real data).
+            # If Selenium times out, fall back to Gemini results.
 
             search_kws = keywords[:3]
-            with ThreadPoolExecutor(max_workers=len(search_kws)) as search_pool:
-                futures = {
-                    search_pool.submit(search_restaurants_fast, kw, search_location, 5): kw
-                    for kw in search_kws
-                }
-                try:
-                    for future in _as_completed(futures, timeout=15):
-                        kw = futures[future]
-                        try:
-                            results = future.result(timeout=1)
-                            for r in results:
-                                if not any(existing["name"] == r["name"] for existing in all_restaurants):
-                                    r["food_type"] = kw
-                                    all_restaurants.append(r)
-                            logger.info("Search '%s': %d results", kw, len(results))
-                        except Exception as e:
-                            logger.warning("Fast search failed for '%s': %s", kw, e)
-                except Exception:
-                    logger.warning("Some keyword searches timed out")
 
+            # Start Selenium searches in background
+            selenium_pool = ThreadPoolExecutor(max_workers=min(3, len(search_kws)))
+            selenium_futures = {
+                selenium_pool.submit(search_restaurants_fast, kw, search_location, 5): kw
+                for kw in search_kws
+            }
+
+            # Meanwhile, get Gemini recommendations (fast path ~3s)
+            yield send_event("thinking", {"step": "search", "message": f"AI 推薦 + Google Maps 搜尋中..."})
+
+            gemini_results = []
+            try:
+                from modules.ai.gemini_pool import gemini_pool
+                from google import genai as _genai
+                from google.genai import types as _types
+
+                api_key = gemini_pool.get_key()
+                if api_key:
+                    budget_hint = f", 預算{budget['max']}元以內" if budget and budget.get("max") else ""
+                    weather_hint = ""
+                    if weather_data and weather_data.get("temperature"):
+                        weather_hint = f", 天氣{weather_data['temperature']}°C"
+
+                    prompt = f"""推薦 {search_location} 附近的 {', '.join(keywords)} 餐廳{budget_hint}{weather_hint}。
+回傳 JSON 陣列，每間包含 name, address, rating, price_level, food_type, reason。
+只推薦你確定真實存在的餐廳，地址要具體到路名門牌。回傳 5-8 間。"""
+
+                    client = _genai.Client(api_key=api_key)
+                    resp = await loop.run_in_executor(
+                        None,
+                        lambda: client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=prompt,
+                            config=_types.GenerateContentConfig(
+                                temperature=0.3,
+                                response_mime_type="application/json",
+                            ),
+                        ),
+                    )
+                    gemini_list = json.loads(resp.text.strip())
+                    if isinstance(gemini_list, list):
+                        for r in gemini_list:
+                            gemini_results.append({
+                                "name": r.get("name", ""),
+                                "address": r.get("address", ""),
+                                "rating": r.get("rating"),
+                                "price_level": r.get("price_level"),
+                                "food_type": r.get("food_type", ""),
+                                "ai_reason": r.get("reason", ""),
+                                "maps_url": f"https://www.google.com/maps/search/{quote(r.get('name',''))}+{quote(search_location)}",
+                                "source": "gemini_initial",
+                            })
+                    logger.info("Gemini initial: %d results", len(gemini_results))
+            except Exception as e:
+                logger.warning("Gemini initial recommendation failed: %s", e)
+
+            # Collect Selenium results (wait up to 15s more)
+            selenium_results = []
+            try:
+                for future in _as_completed(selenium_futures, timeout=15):
+                    kw = selenium_futures[future]
+                    try:
+                        results = future.result(timeout=1)
+                        for r in results:
+                            r["food_type"] = kw
+                            selenium_results.append(r)
+                        logger.info("Selenium '%s': %d results", kw, len(results))
+                    except Exception as e:
+                        logger.warning("Selenium search failed for '%s': %s", kw, e)
+            except Exception:
+                logger.warning("Some Selenium searches timed out")
+            finally:
+                selenium_pool.shutdown(wait=False)
+
+            # Merge: prefer Selenium (real data), supplement with Gemini
+            seen_names = set()
+            for r in selenium_results:
+                name = r.get("name", "").strip()
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    r["source"] = "google_maps"
+                    all_restaurants.append(r)
+
+            for r in gemini_results:
+                name = r.get("name", "").strip()
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    all_restaurants.append(r)
+
+            selenium_count = sum(1 for r in all_restaurants if r.get("source") == "google_maps")
+            gemini_count = sum(1 for r in all_restaurants if r.get("source") == "gemini_initial")
             yield send_event("thinking", {
                 "step": "search_done",
-                "message": f"Google 搜尋找到 {len(all_restaurants)} 間餐廳",
+                "message": f"Google Maps {selenium_count} 間 + AI 推薦 {gemini_count} 間",
             })
 
-            # Phase 2b: Enrich with Gemini (add ratings, prices, reasons, supplements)
-            yield send_event("thinking", {"step": "enrich", "message": "AI 補充資訊與評分中..."})
+            # Enrich (only for Selenium results that lack AI reason)
+            yield send_event("thinking", {"step": "enrich", "message": "AI 補充資訊中..."})
 
             try:
                 all_restaurants = await loop.run_in_executor(
