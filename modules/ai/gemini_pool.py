@@ -14,6 +14,7 @@ Features:
 
 import functools
 import logging
+import os
 import random
 import re
 import sqlite3
@@ -24,7 +25,7 @@ from typing import Callable, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 # Default database path (same as existing cache manager)
-DB_PATH = "cache.db"
+DB_PATH = os.environ.get("CACHE_DB_PATH", "cache.db")
 
 # Key validation constants
 KEY_PREFIX = "AIza"

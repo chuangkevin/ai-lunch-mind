@@ -67,13 +67,20 @@ class SQLiteCacheManager:
             
             # 建立索引以提升查詢性能
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_cache_type_expires 
+                CREATE INDEX IF NOT EXISTS idx_cache_type_expires
                 ON cache_items(cache_type, expires_at)
             ''')
-            
+
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_expires_at 
+                CREATE INDEX IF NOT EXISTS idx_expires_at
                 ON cache_items(expires_at)
+            ''')
+
+            # 新增：單獨的 cache_key 索引（雖然是 PRIMARY KEY 但明確建立以確保最佳化）
+            # 新增：單獨的 cache_type 索引（用於統計查詢）
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_cache_type
+                ON cache_items(cache_type)
             ''')
             
             # 初始化統計數據
@@ -226,8 +233,8 @@ class SQLiteCacheManager:
                 "result_count": len(restaurants)
             }
             
-            # 餐廳資料快取30分鐘
-            self._set_cache_item(cache_key, "restaurant", restaurants, metadata, ttl_minutes=30)
+            # 餐廳資料快取2小時（優化：營業資訊不會頻繁變動）
+            self._set_cache_item(cache_key, "restaurant", restaurants, metadata, ttl_minutes=120)
             print(f"快取設置：餐廳搜尋 {keyword} @ {location} ({len(restaurants)} 家)")
     
     # 天氣資料快取
@@ -256,8 +263,8 @@ class SQLiteCacheManager:
                 "data_type": "weather"
             }
             
-            # 天氣資料快取15分鐘
-            self._set_cache_item(cache_key, "weather", weather_data, metadata, ttl_minutes=15)
+            # 天氣資料快取30分鐘（優化：平衡freshness與效能）
+            self._set_cache_item(cache_key, "weather", weather_data, metadata, ttl_minutes=30)
             print(f"快取設置：天氣資料 {location}")
     
     # AI分析快取
@@ -287,8 +294,8 @@ class SQLiteCacheManager:
                 "input_length": len(user_input)
             }
             
-            # AI分析快取60分鐘
-            self._set_cache_item(cache_key, "ai", analysis_result, metadata, ttl_minutes=60)
+            # AI分析快取4小時（優化：分析結果是確定性的）
+            self._set_cache_item(cache_key, "ai", analysis_result, metadata, ttl_minutes=240)
             print(f"快取設置：AI分析 '{user_input[:30]}...'")
     
     def get_cache_stats(self) -> Dict:
@@ -352,7 +359,9 @@ class SQLiteCacheManager:
         pass
 
 # 創建全域 SQLite 快取管理器實例
-sqlite_cache_manager = SQLiteCacheManager(db_path="cache.db", max_size=10000)
+import os as _os
+_db_path = _os.environ.get("CACHE_DB_PATH", "cache.db")
+sqlite_cache_manager = SQLiteCacheManager(db_path=_db_path, max_size=10000)
 
 # 便捷函數 - 保持與原有記憶體快取相同的API
 def get_restaurant_cache(keyword: str, location: str, max_results: int, max_distance: float = None):
