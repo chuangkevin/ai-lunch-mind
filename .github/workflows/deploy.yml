@@ -47,6 +47,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    if: ${{ secrets.DEPLOY_HOST != '' }}
 
     steps:
       - name: Deploy to Raspberry Pi
