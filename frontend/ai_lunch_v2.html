@@ -1044,7 +1044,7 @@
       if (r.price_level) {
         pills += '<span class="card-pill card-pill-price">\ud83d\udcb0 ' + esc(r.price_level) + '</span>';
       } else if (r.estimated_price) {
-        pills += '<span class="card-pill card-pill-price">\ud83d\udcb0 ~$' + esc(String(r.estimated_price)) + '</span>';
+        pills += '<span class="card-pill card-pill-price" style="opacity:0.7" title="AI\u4f30\u50f9\uff0c\u50c5\u4f9b\u53c3\u8003">\ud83d\udcb0 ~' + esc(String(r.estimated_price)) + ' (AI\u4f30)</span>';
       }
 
       // Social proof pills (clickable, with platform names)
