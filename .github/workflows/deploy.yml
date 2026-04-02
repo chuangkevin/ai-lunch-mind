@@ -3,6 +3,7 @@ name: Build & Deploy
 on:
   push:
     branches: [master]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -47,37 +48,100 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
     steps:
-      - name: Deploy to Raspberry Pi
-        uses: appleboy/ssh-action@v1
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
         with:
-          host: ${{ secrets.DEPLOY_SERVER_IP }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd ${{ secrets.DEPLOY_PATH }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
 
-            # Pull latest image
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Test Tailscale Connection
+        run: |
+          echo "Testing connection to deployment server..."
+          tailscale status
+          ping -c 3 ${{ secrets.DEPLOY_SERVER_IP }}
 
-            # Stop and remove old container
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via SSH
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} '
+            set -e
+
+            echo "📁 Navigating to deployment directory..."
+            cd '"${DEPLOY_PATH}"'
+
+            echo "🔄 Pulling latest image..."
+            docker pull ghcr.io/chuangkevin/ai-lunch-mind:latest
+
+            echo "🛑 Stopping existing container..."
             docker stop ai-lunch-mind 2>/dev/null || true
             docker rm ai-lunch-mind 2>/dev/null || true
+            sleep 3
 
-            # Run new container
+            echo "🚀 Starting new container..."
             docker run -d \
               --name ai-lunch-mind \
               --restart unless-stopped \
               -p 9113:9113 \
               --shm-size=2g \
-              -v ${{ secrets.DEPLOY_PATH }}/cache.db:/app/cache.db \
-              -v ${{ secrets.DEPLOY_PATH }}/.env:/app/.env:ro \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+              -v '"${DEPLOY_PATH}"'/cache.db:/app/cache.db \
+              -v '"${DEPLOY_PATH}"'/.env:/app/.env:ro \
+              ghcr.io/chuangkevin/ai-lunch-mind:latest
 
-            # Wait and health check
-            sleep 10
-            curl -f http://localhost:9113/health || echo "Health check failed"
+            echo "🧹 Cleaning up old images..."
+            docker image prune -af --filter "until=24h" || true
 
-            # Cleanup old images
-            docker image prune -f
+            echo "✅ Deployment completed!"
+            docker ps --filter "name=ai-lunch-mind"
+          '
+
+      - name: Health Check
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          echo "🏥 Performing health check..."
+          for i in $(seq 1 12); do
+            echo "  Attempt $i/12..."
+            if ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} \
+              'curl -sf http://localhost:9113/health' 2>/dev/null; then
+              echo ""
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} \
+            'docker ps -a --filter "name=ai-lunch-mind"; docker logs ai-lunch-mind --tail 30' || true
+
+          echo "❌ Health check failed after 60 seconds"
+          exit 1
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server**: \`${{ secrets.DEPLOY_SERVER_IP }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`ghcr.io/chuangkevin/ai-lunch-mind:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Port**: 9113" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployed at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
