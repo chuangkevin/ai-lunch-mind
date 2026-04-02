@@ -13,6 +13,7 @@ used by the parallel / fast search pipeline.
 """
 
 from typing import List, Dict, Optional, Any
+import os
 import time
 import random
 import logging
@@ -55,8 +56,13 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     """
     options = Options()
 
+    # Docker/Debian: chromium at /usr/bin/chromium (not google-chrome)
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
     if headless:
-        options.add_argument('--headless')
+        options.add_argument('--headless=new')
 
     # Basic settings
     options.add_argument('--no-sandbox')
@@ -107,8 +113,13 @@ def create_chrome_driver_fast(headless: bool = True) -> webdriver.Chrome:
     """
     options = Options()
 
+    # Docker/Debian: chromium at /usr/bin/chromium
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
     if headless:
-        options.add_argument('--headless')
+        options.add_argument('--headless=new')
 
     # Minimal settings for speed
     options.add_argument('--no-sandbox')
