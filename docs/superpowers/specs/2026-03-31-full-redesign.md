@@ -248,3 +248,20 @@ Minimal changes — keep functional, match dark theme:
 - SSE events (intent/weather/analysis/search) format correct — verified via curl
 - Gemini intent analysis returns location + keywords correctly — verified
 - Settings page restyled to matching dark theme — verified
+
+### Post-Implementation Fixes (2026-04-02)
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Search returns only 1 result | 3 keywords searched sequentially (39s total), SSE timeout cut off | Parallel search with ThreadPoolExecutor (3 workers) |
+| Gemini hallucinated 5/6 restaurants | Hybrid search fallback to Gemini when Selenium slow | Removed ALL Gemini restaurant generation; only Google Maps data |
+| Price $300-800 wrong (real: $200-400) | Gemini enrichment overwrote real Google Maps price | Only fill missing fields, never overwrite existing data |
+| Distance 321m/4min wrong (real: 550m/8min) | Walking factor 1.3x too low for urban Taiwan | Changed to 1.8x factor + 4km/h walking speed |
+| Card width inconsistent | Long names broke CSS grid columns | Added min-width:0, overflow:hidden, widened to 1200px |
+| No price data from Google Maps | Headless Chrome doesn't receive price in search results (anti-bot) | Gemini fills missing prices, labeled as "(AI估)" with lower opacity |
+
+### Known Limitations
+- **Price**: Google Maps headless search results don't include price data. Prices shown are AI estimates, clearly labeled.
+- **Distance**: Geodesic + 1.8x factor is ~20% off from Google Maps walking route. Acceptable for estimation.
+- **Search speed**: Selenium takes 20-35 seconds for 3 keywords. Progress streamed per keyword to keep user informed.
+- **Evaluation count**: Google Maps headless doesn't return review count (e.g., "(255)"). Not shown.
