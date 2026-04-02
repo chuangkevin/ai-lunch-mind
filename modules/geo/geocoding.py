@@ -31,8 +31,12 @@ from selenium.webdriver.common.by import By
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
-# Re-use the User-Agent pool from the browser pool module
-from modules.scraper.browser_pool import USER_AGENTS
+# Default User-Agents (avoid circular import with browser_pool)
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
 
 # CSS selectors used in extract_address_from_maps_url
 from modules.scraper.selectors import MAPS_PAGE_ADDRESS_SELECTORS

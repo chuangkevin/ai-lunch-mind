@@ -19,8 +19,9 @@ from geopy.distance import geodesic
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-from modules.scraper.browser_pool import create_chrome_driver
-from modules.scraper.selectors import WALKING_TAB_SELECTORS
+# Lazy imports to avoid circular dependency with scraper modules
+# from modules.scraper.browser_pool import create_chrome_driver  # imported in functions
+# from modules.scraper.selectors import WALKING_TAB_SELECTORS  # imported in functions
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ def calculate_walking_distance_from_google_maps(
     route_url = build_route_url(str(user_address), str(restaurant_address))
     driver = None
     try:
+        from modules.scraper.browser_pool import create_chrome_driver
         driver = create_chrome_driver(headless=True)
         driver.get(route_url)
         WebDriverWait(driver, 10).until(
@@ -157,6 +159,7 @@ def calculate_walking_distance_from_google_maps(
         # Try to click the walking tab
         try:
             from selenium.webdriver.support import expected_conditions as EC
+            from modules.scraper.selectors import WALKING_TAB_SELECTORS
             for sel in WALKING_TAB_SELECTORS:
                 try:
                     el = WebDriverWait(driver, 3).until(
