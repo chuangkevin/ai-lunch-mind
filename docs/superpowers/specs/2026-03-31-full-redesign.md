@@ -260,8 +260,29 @@ Minimal changes — keep functional, match dark theme:
 | Card width inconsistent | Long names broke CSS grid columns | Added min-width:0, overflow:hidden, widened to 1200px |
 | No price data from Google Maps | Headless Chrome doesn't receive price in search results (anti-bot) | Gemini fills missing prices, labeled as "(AI估)" with lower opacity |
 
+### Docker/CI-CD Fixes (2026-04-02)
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| GitHub Actions deploy SSH timeout | Missing Tailscale connection step | Added tailscale/github-action@v2 (copied from home-media) |
+| GitHub Actions invalid workflow | `secrets` not allowed in `if` condition | Removed condition, always run deploy |
+| GitHub Actions secret names wrong | Used DEPLOY_HOST instead of DEPLOY_SERV | Matched exact secret names from repo |
+| Deploy path not exists | mkdir needed on first deploy | Added mkdir -p + scp docker-compose.yml |
+| Docker mount file not exists | File mount fails if host file missing | Changed to directory volume mount (./data:/app/data) |
+| Docker mount permission denied | DEPLOY_PATH owned by root | Changed to user-writable directory mount |
+| Chromium not found in Docker | Selenium defaults to google-chrome path | Set options.binary_location from CHROME_BIN env |
+| Circular import crash | geo.geocoding <-> scraper.browser_pool | Inlined USER_AGENTS, lazy imports in distance.py |
+| Gemini overwrote real prices | Enrichment blindly replaced all fields | Only fill missing fields, never overwrite Google Maps data |
+| Distance 321m vs real 550m | Walking factor 1.3x too low | Changed to 1.8x + 4km/h speed |
+
 ### Known Limitations
+
 - **Price**: Google Maps headless search results don't include price data. Prices shown are AI estimates, clearly labeled.
 - **Distance**: Geodesic + 1.8x factor is ~20% off from Google Maps walking route. Acceptable for estimation.
 - **Search speed**: Selenium takes 20-35 seconds for 3 keywords. Progress streamed per keyword to keep user informed.
 - **Evaluation count**: Google Maps headless doesn't return review count (e.g., "(255)"). Not shown.
+- **Docker ARM64**: Chromium on RPi may be slower than desktop Chrome. Search timeouts more likely.
+
+### Pending Investigation
+
+- **RPi Docker 7.9s failure**: Circular import fixed locally but RPi still fails. Need container logs (`docker logs ai-lunch-mind`) to diagnose.
