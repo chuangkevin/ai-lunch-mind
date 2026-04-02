@@ -80,7 +80,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} "mkdir -p ${DEPLOY_PATH} && touch ${DEPLOY_PATH}/cache.db && touch ${DEPLOY_PATH}/.env"
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} "sudo mkdir -p ${DEPLOY_PATH} && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${DEPLOY_PATH} && touch ${DEPLOY_PATH}/cache.db && touch ${DEPLOY_PATH}/.env"
           scp -i ~/.ssh/deploy_key docker-compose.yml ${DEPLOY_USER}@${DEPLOY_SERVER_IP}:${DEPLOY_PATH}/docker-compose.yml
 
       - name: Deploy via SSH
