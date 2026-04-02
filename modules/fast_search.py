@@ -78,8 +78,8 @@ def calculate_real_distances(
                     if dist_km < 0.03:
                         continue  # Skip, don't show fake 0m distance
 
-                    walking_km = dist_km * 1.3
-                    walking_minutes = round(walking_km / 5 * 60)
+                    walking_km = dist_km * 1.8  # Urban walking factor (1.3 was too low for Taiwan alleys)
+                    walking_minutes = round(walking_km / 4 * 60)  # 4km/h urban walking speed
 
                     r["distance_km"] = round(dist_km, 2)
                     r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
@@ -316,11 +316,17 @@ def enrich_with_gemini(
                 info = enriched_by_name.pop(name)
                 if info.get("remove"):
                     continue
-                rest["address"] = info.get("address", rest.get("address", ""))
-                rest["rating"] = info.get("rating", rest.get("rating"))
-                rest["price_level"] = info.get("price_level", rest.get("price_level"))
-                rest["estimated_price"] = info.get("price_level")
-                rest["food_type"] = info.get("food_type", rest.get("food_type", ""))
+                # ONLY fill missing fields — never overwrite real Google Maps data
+                if not rest.get("address") or rest["address"].endswith("附近"):
+                    rest["address"] = info.get("address", rest.get("address", ""))
+                if not rest.get("rating"):
+                    rest["rating"] = info.get("rating")
+                if not rest.get("price_level"):
+                    rest["price_level"] = info.get("price_level")
+                    rest["estimated_price"] = info.get("price_level")
+                if not rest.get("food_type"):
+                    rest["food_type"] = info.get("food_type", "")
+                # AI reason is always from Gemini (not a real data field)
                 rest["ai_reason"] = info.get("reason", "")
 
         # DO NOT add Gemini-generated restaurants — they are hallucinated.
