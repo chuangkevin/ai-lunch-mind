@@ -47,16 +47,17 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: ${{ secrets.DEPLOY_HOST != '' }}
 
     steps:
       - name: Deploy to Raspberry Pi
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
+          host: ${{ secrets.DEPLOY_SERVER_IP }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+
             # Pull latest image
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
@@ -70,8 +71,8 @@ jobs:
               --restart unless-stopped \
               -p 9113:9113 \
               --shm-size=2g \
-              -v /opt/ai-lunch-mind/cache.db:/app/cache.db \
-              -v /opt/ai-lunch-mind/.env:/app/.env:ro \
+              -v ${{ secrets.DEPLOY_PATH }}/cache.db:/app/cache.db \
+              -v ${{ secrets.DEPLOY_PATH }}/.env:/app/.env:ro \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
             # Wait and health check
