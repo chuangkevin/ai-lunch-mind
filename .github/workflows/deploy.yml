@@ -74,6 +74,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_SERVER_IP }} >> ~/.ssh/known_hosts
 
+      - name: Ensure deploy directory and copy docker-compose.yml
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} "mkdir -p ${DEPLOY_PATH}"
+          scp -i ~/.ssh/deploy_key docker-compose.yml ${DEPLOY_USER}@${DEPLOY_SERVER_IP}:${DEPLOY_PATH}/docker-compose.yml
+
       - name: Deploy via SSH
         env:
           DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
@@ -83,32 +92,51 @@ jobs:
           ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} '
             set -e
 
+            # 重試函數：最多重試 3 次，每次間隔遞增
+            retry_pull() {
+              local max_attempts=3
+              local attempt=1
+              local delay=10
+
+              while [ $attempt -le $max_attempts ]; do
+                echo "🔄 Pulling Docker images (attempt $attempt/$max_attempts)..."
+                if docker compose -f docker-compose.yml pull; then
+                  echo "✅ Pull successful!"
+                  return 0
+                fi
+
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "⚠️ Pull failed, retrying in ${delay}s..."
+                  sleep $delay
+                  delay=$((delay * 2))
+                fi
+                attempt=$((attempt + 1))
+              done
+
+              echo "❌ Pull failed after $max_attempts attempts"
+              return 1
+            }
+
             echo "📁 Navigating to deployment directory..."
             cd '"${DEPLOY_PATH}"'
 
-            echo "🔄 Pulling latest image..."
-            docker pull ghcr.io/chuangkevin/ai-lunch-mind:latest
+            retry_pull
 
-            echo "🛑 Stopping existing container..."
-            docker stop ai-lunch-mind 2>/dev/null || true
-            docker rm ai-lunch-mind 2>/dev/null || true
+            echo "🛑 Stopping existing containers..."
+            docker compose -f docker-compose.yml down --remove-orphans --timeout 30 || true
+
+            echo "🧹 Force removing any leftover containers..."
+            docker rm -f ai-lunch-mind 2>/dev/null || true
             sleep 3
 
-            echo "🚀 Starting new container..."
-            docker run -d \
-              --name ai-lunch-mind \
-              --restart unless-stopped \
-              -p 9113:9113 \
-              --shm-size=2g \
-              -v '"${DEPLOY_PATH}"'/cache.db:/app/cache.db \
-              -v '"${DEPLOY_PATH}"'/.env:/app/.env:ro \
-              ghcr.io/chuangkevin/ai-lunch-mind:latest
+            echo "🚀 Starting updated containers..."
+            docker compose -f docker-compose.yml up -d --force-recreate
 
             echo "🧹 Cleaning up old images..."
             docker image prune -af --filter "until=24h" || true
 
-            echo "✅ Deployment completed!"
-            docker ps --filter "name=ai-lunch-mind"
+            echo "✅ Deployment completed successfully!"
+            docker compose -f docker-compose.yml ps
           '
 
       - name: Health Check

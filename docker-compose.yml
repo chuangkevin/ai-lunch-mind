@@ -1,6 +1,6 @@
 services:
   ai-lunch-mind:
-    build: .
+    image: ghcr.io/chuangkevin/ai-lunch-mind:latest
     container_name: ai-lunch-mind
     restart: unless-stopped
     ports:
