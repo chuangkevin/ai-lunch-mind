@@ -285,4 +285,17 @@ Minimal changes — keep functional, match dark theme:
 
 ### Pending Investigation
 
-- **RPi Docker 7.9s failure**: Circular import fixed locally but RPi still fails. Need container logs (`docker logs ai-lunch-mind`) to diagnose.
+- **RPi Docker "沒有找到餐廳"**: Selenium/Chromium on ARM64 Docker may not work. Possible causes:
+  - Chromium crashes silently in container (ARM64 + limited RAM)
+  - Google Maps page too heavy for RPi to render in time
+  - chromium-driver version mismatch with chromium
+  - Need to run: `docker exec ai-lunch-mind python -c "from selenium import webdriver; ..."` to verify Chromium works
+  - **Fallback plan**: If Selenium can't work on RPi, use Uber Eats API (HTTP only, no browser needed) as primary data source
+
+### Uber Eats Integration (Designed, Not Yet Wired into SSE)
+
+Module created at `modules/scraper/ubereats.py`. Uses undocumented `getFeedV1` API:
+- No Selenium needed — pure HTTP POST with constructed cookie
+- Returns real store data: name, rating, delivery ETA, Uber Eats URL
+- Tested: 98 restaurants found near 大安區 in ~2 seconds
+- **This could replace Selenium on RPi** since it doesn't need a browser
