@@ -1097,6 +1097,7 @@
         walkLink = 'https://www.google.com/maps/dir/?api=1&destination=' + dest + '&travelmode=walking';
       }
       var mapsLink = 'https://www.google.com/maps/search/?api=1&query=' + dest;
+      var uberEatsLink = 'https://www.ubereats.com/tw/search?q=' + encodeURIComponent(r.name || '');
 
       card.innerHTML =
         '<div class="card-header">' +
@@ -1110,6 +1111,7 @@
         '<div class="card-actions">' +
           '<a href="' + esc(walkLink) + '" target="_blank" rel="noopener" class="card-action-link">\ud83d\udeb6 \u6b65\u884c\u5c0e\u822a</a>' +
           '<a href="' + esc(mapsLink) + '" target="_blank" rel="noopener" class="card-action-link">\ud83d\uddfa\ufe0f Google Maps</a>' +
+          '<a href="' + esc(uberEatsLink) + '" target="_blank" rel="noopener" class="card-action-link" style="color:#06c167;">\ud83d\uded2 Uber Eats</a>' +
         '</div>';
 
       return card;

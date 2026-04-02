@@ -1,18 +1,19 @@
-version: '3.8'
-
 services:
   ai-lunch-mind:
     build: .
-    ports:
-      - "5000:5000"
-    environment:
-      - CWB_API_KEY=${CWB_API_KEY}
-    volumes:
-      # 可選：掛載 .env 檔案
-      - ./.env:/app/.env:ro
+    container_name: ai-lunch-mind
     restart: unless-stopped
+    ports:
+      - "9113:9113"
+    volumes:
+      - ./cache.db:/app/cache.db
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+    shm_size: '2gb'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:9113/health"]
       interval: 30s
       timeout: 10s
       retries: 3
