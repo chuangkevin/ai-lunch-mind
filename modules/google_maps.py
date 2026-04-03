@@ -30,6 +30,7 @@ import threading
 from queue import Queue
 from contextlib import contextmanager
 import json
+import os
 from datetime import datetime, timedelta
 
 # 禁用 SSL 警告
@@ -74,6 +75,19 @@ def create_session() -> requests.Session:
     
     return session
 
+def _apply_chrome_binary(options: Options):
+    """設定 Chromium binary 和 chromedriver 路徑（Docker/Linux 環境）"""
+    chrome_bin = os.environ.get('CHROME_BIN')
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+def _create_service():
+    """建立 ChromeDriver Service，優先使用系統安裝的 chromedriver"""
+    chromedriver_path = '/usr/bin/chromedriver'
+    if os.path.isfile(chromedriver_path):
+        return Service(executable_path=chromedriver_path)
+    return None
+
 def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     """
     建立 Chrome 瀏覽器驅動
@@ -81,10 +95,11 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     :return: Chrome WebDriver
     """
     options = Options()
-    
+    _apply_chrome_binary(options)
+
     if headless:
         options.add_argument('--headless')
-    
+
     # 基本設定
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -102,7 +117,7 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    
+
     # 額外的日誌抑制設定
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -110,16 +125,17 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--disable-gpu-logging')
     options.add_argument('--silent')
     options.add_argument('--log-level=3')
-    
+
     # 隨機 User-Agent
     user_agent = random.choice(USER_AGENTS)
     options.add_argument(f'--user-agent={user_agent}')
-    
+
     # 語言設定
     options.add_argument('--lang=zh-TW')
-    
+
     try:
-        driver = webdriver.Chrome(options=options)
+        service = _create_service()
+        driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
     except Exception as e:
@@ -133,10 +149,11 @@ def create_chrome_driver_fast(headless: bool = True) -> webdriver.Chrome:
     :return: Chrome WebDriver
     """
     options = Options()
-    
+    _apply_chrome_binary(options)
+
     if headless:
         options.add_argument('--headless')
-    
+
     # 最精簡的設定 - 只保留必要選項
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -147,12 +164,13 @@ def create_chrome_driver_fast(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--disable-images')  # 不載入圖片加速
     options.add_argument('--disable-javascript')  # 不執行 JS 加速
     options.add_argument('--window-size=1024,768')  # 小視窗
-    
+
     # 最快的 User-Agent
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-    
+
     try:
-        driver = webdriver.Chrome(options=options)
+        service = _create_service()
+        driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
         return driver
     except Exception as e:
         logger.error(f"建立快速 Chrome 驅動失敗: {e}")

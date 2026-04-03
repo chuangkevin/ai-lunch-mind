@@ -9,10 +9,12 @@
 4. 資源清理
 """
 
+import os
 import time
 import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -36,6 +38,12 @@ class BrowserPool:
     def _get_chrome_options(self):
         """配置Chrome選項"""
         options = Options()
+
+        # Docker/Linux 環境：設定 Chromium binary 路徑
+        chrome_bin = os.environ.get('CHROME_BIN')
+        if chrome_bin:
+            options.binary_location = chrome_bin
+
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
@@ -44,13 +52,13 @@ class BrowserPool:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-        
+
         # 快速載入設定
         options.add_argument('--disable-images')
         options.add_argument('--disable-javascript')
         options.add_argument('--disable-plugins')
         options.add_argument('--disable-extensions')
-        
+
         return options
     
     def _create_browser(self):
@@ -59,7 +67,13 @@ class BrowserPool:
             print("創建新的瀏覽器實例...")
             start_time = time.time()
             
-            browser = webdriver.Chrome(options=self.chrome_options)
+            # 優先使用系統安裝的 chromedriver
+            service = None
+            chromedriver_path = '/usr/bin/chromedriver'
+            if os.path.isfile(chromedriver_path):
+                service = Service(executable_path=chromedriver_path)
+
+            browser = webdriver.Chrome(options=self.chrome_options, service=service) if service else webdriver.Chrome(options=self.chrome_options)
             browser.set_page_load_timeout(30)
             browser.implicitly_wait(10)
             
