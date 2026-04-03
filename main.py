@@ -676,16 +676,42 @@ async def chat_recommendation_stream(message: str = None):
 
             search_kws = keywords[:3]
 
-            yield send_event("thinking", {"step": "search", "message": f"Google Maps 搜尋中（{len(search_kws)} 個關鍵字並行）..."})
+            yield send_event("thinking", {"step": "search", "message": f"Google Maps + Uber Eats 搜尋中（{len(search_kws)} 個關鍵字並行）..."})
 
-            # Parallel Selenium searches with longer timeout (30s)
-            selenium_pool = ThreadPoolExecutor(max_workers=min(3, len(search_kws)))
+            # Geocode search_location for Uber Eats (needs lat/lng)
+            ue_lat, ue_lng = None, None
+            try:
+                from geopy.geocoders import ArcGIS
+                _geolocator = ArcGIS(timeout=5)
+                for _variant in [search_location, search_location + " 台灣", search_location + " Taiwan"]:
+                    _geo_result = _geolocator.geocode(_variant)
+                    if _geo_result:
+                        ue_lat, ue_lng = _geo_result.latitude, _geo_result.longitude
+                        break
+            except Exception as e:
+                logger.warning("ArcGIS geocode for Uber Eats failed: %s", e)
+
+            # Parallel Selenium searches + Uber Eats with longer timeout (30s)
+            ue_worker_count = 1 if ue_lat is not None else 0
+            selenium_pool = ThreadPoolExecutor(max_workers=min(3, len(search_kws)) + ue_worker_count)
+
+            # Submit Google Maps futures
             selenium_futures = {
                 selenium_pool.submit(search_restaurants_fast, kw, search_location, 8): kw
                 for kw in search_kws
             }
 
+            # Submit Uber Eats future in parallel (if geocoding succeeded)
+            ue_future = None
+            if ue_lat is not None and ue_lng is not None:
+                from modules.scraper.ubereats import search_ubereats, match_ubereats_to_restaurants
+                ue_keyword = keywords[0] if keywords else ""
+                ue_future = selenium_pool.submit(
+                    search_ubereats, ue_keyword, ue_lat, ue_lng, search_location, 20
+                )
+
             seen_names = set()
+            ubereats_results = []
             try:
                 for future in _as_completed(selenium_futures, timeout=30):
                     kw = selenium_futures[future]
@@ -707,8 +733,33 @@ async def chat_recommendation_stream(message: str = None):
                         logger.warning("Selenium search failed for '%s': %s", kw, e)
             except Exception:
                 logger.warning("Some Selenium searches timed out")
-            finally:
-                selenium_pool.shutdown(wait=False)
+
+            # Collect Uber Eats results (non-blocking — if not done yet, wait up to 5s)
+            if ue_future is not None:
+                try:
+                    ubereats_results = ue_future.result(timeout=5)
+                    if ubereats_results:
+                        yield send_event("thinking", {
+                            "step": "ubereats_done",
+                            "message": f"Uber Eats 找到 {len(ubereats_results)} 間外送餐廳",
+                        })
+                except Exception as e:
+                    logger.warning("Uber Eats search failed: %s", e)
+
+            selenium_pool.shutdown(wait=False)
+
+            # Merge Uber Eats data into Google Maps results (enrich only, no new restaurants)
+            if ubereats_results and all_restaurants:
+                try:
+                    all_restaurants = match_ubereats_to_restaurants(all_restaurants, ubereats_results)
+                    ue_matched = sum(1 for r in all_restaurants if r.get("uber_eats_url"))
+                    if ue_matched > 0:
+                        yield send_event("thinking", {
+                            "step": "ubereats_merged",
+                            "message": f"{ue_matched} 間餐廳支援 Uber Eats 外送",
+                        })
+                except Exception as e:
+                    logger.warning("Uber Eats merge failed: %s", e)
 
             yield send_event("thinking", {
                 "step": "search_done",

@@ -566,6 +566,7 @@
     }
 
     .card-pill-distance { background: var(--pill-green-bg); color: var(--success); }
+    .card-pill-delivery { background: #064e3b; color: #6ee7b7; }
     .card-pill-price { background: var(--pill-purple-bg); color: #a5b4fc; }
 
     .card-pill-social {
@@ -1075,6 +1076,11 @@
         }
       }
 
+      // Uber Eats delivery pill
+      if (r.uber_eats_eta) {
+        pills += '<span class="card-pill card-pill-delivery">\ud83d\udef5 \u5916\u9001 ' + esc(r.uber_eats_eta) + '</span>';
+      }
+
       // --- Address ---
       var addrHtml = '';
       if (r.address) {
@@ -1097,7 +1103,7 @@
         walkLink = 'https://www.google.com/maps/dir/?api=1&destination=' + dest + '&travelmode=walking';
       }
       var mapsLink = 'https://www.google.com/maps/search/?api=1&query=' + dest;
-      var uberEatsLink = 'https://www.ubereats.com/tw/search?q=' + encodeURIComponent(r.name || '');
+      var uberEatsLink = r.uber_eats_url || ('https://www.ubereats.com/tw/search?q=' + encodeURIComponent(r.name || ''));
 
       card.innerHTML =
         '<div class="card-header">' +

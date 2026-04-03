@@ -292,10 +292,31 @@ Minimal changes — keep functional, match dark theme:
   - Need to run: `docker exec ai-lunch-mind python -c "from selenium import webdriver; ..."` to verify Chromium works
   - **Fallback plan**: If Selenium can't work on RPi, use Uber Eats API (HTTP only, no browser needed) as primary data source
 
-### Uber Eats Integration (Designed, Not Yet Wired into SSE)
+### Uber Eats Integration (2026-04-03)
 
-Module created at `modules/scraper/ubereats.py`. Uses undocumented `getFeedV1` API:
-- No Selenium needed — pure HTTP POST with constructed cookie
-- Returns real store data: name, rating, delivery ETA, Uber Eats URL
-- Tested: 98 restaurants found near 大安區 in ~2 seconds
-- **This could replace Selenium on RPi** since it doesn't need a browser
+Wired `modules/scraper/ubereats.py` into the SSE streaming pipeline as a parallel search track.
+
+| Item | Detail |
+|------|--------|
+| Module | `modules/scraper/ubereats.py` (pure HTTP, no Selenium) |
+| API | Uber Eats `getFeedV1` undocumented endpoint |
+| Integration point | `main.py` SSE endpoint, parallel with Google Maps Selenium |
+| Merge strategy | Match by restaurant name → enrich Google Maps results with delivery info |
+| Frontend changes | Uber Eats delivery pill + direct order link on matched restaurants |
+
+**What it adds to restaurant cards:**
+- Delivery time pill (e.g., "外送 15-25 分鐘")
+- Direct Uber Eats link (replaces generic search URL when matched)
+- Uber Eats rating (stored but not displayed, available for future scoring)
+
+**Performance impact:**
+- Uber Eats search runs in parallel with Google Maps (no added latency)
+- Pure HTTP request (~2s), much faster than Selenium
+- Graceful fallback: if Uber Eats fails, results are unchanged
+
+**Data flow:**
+1. Geocode user location → get lat/lng
+2. Launch Uber Eats search + Google Maps searches in parallel
+3. After both complete, merge via `match_ubereats_to_restaurants()`
+4. Matched restaurants get `uber_eats_url`, `uber_eats_eta`, `uber_eats_rating`
+5. Frontend renders delivery pill and direct link for matched restaurants
