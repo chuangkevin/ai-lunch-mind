@@ -188,6 +188,8 @@ def search_restaurants_fast(
                         address = f"{location}附近"
                         price_level = None
                         food_category = ""
+                        open_now = None
+                        hours_status = ""
 
                         try:
                             parent = div.find_element(By.XPATH, './..')
@@ -201,6 +203,15 @@ def search_restaurants_fast(
                                 # Rating: standalone number like "4.6"
                                 if not rating and re.match(r'^\d\.\d$', line):
                                     rating = float(line)
+                                    continue
+
+                                # Business hours line: "營業中 · 打烊時間：20:50" or "休息中 · 開始營業時間：11:00"
+                                if any(k in line for k in ["營業中", "休息中", "已打烊", "打烊時間", "開始營業", "24 小時", "已歇業", "暫停營業"]):
+                                    hours_status = line
+                                    if any(k in line for k in ["營業中", "24 小時"]):
+                                        open_now = True
+                                    elif any(k in line for k in ["休息中", "已打烊", "已歇業", "暫停營業"]):
+                                        open_now = False
                                     continue
 
                                 # Category + address line: "餐廳 ·  · 明志路一段13號"
@@ -229,6 +240,11 @@ def search_restaurants_fast(
                         except Exception as e:
                             logger.warning("Failed to parse parent text: %s", e)
 
+                        # Skip permanently closed restaurants
+                        if any(k in hours_status for k in ["已歇業", "永久歇業", "暫停營業"]):
+                            logger.info("Skipping closed business: %s (%s)", name, hours_status)
+                            continue
+
                         restaurants.append({
                             'name': name,
                             'address': address,
@@ -237,6 +253,8 @@ def search_restaurants_fast(
                             'maps_url': href,
                             'food_type': keyword,
                             'source': 'google_maps',
+                            'open_now': open_now,
+                            'hours_status': hours_status,
                         })
 
                     except Exception as e:

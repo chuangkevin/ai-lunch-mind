@@ -568,6 +568,8 @@
     .card-pill-distance { background: var(--pill-green-bg); color: var(--success); }
     .card-pill-delivery { background: #064e3b; color: #6ee7b7; }
     .card-pill-price { background: var(--pill-purple-bg); color: #a5b4fc; }
+    .card-pill-open { background: #064e3b; color: #6ee7b7; }
+    .card-pill-closed { background: #4c1d1d; color: #fca5a5; }
 
     .card-pill-social {
       background: var(--pill-social-bg);
@@ -1039,6 +1041,16 @@
       } else if (r.address) {
         // Distance unknown: show "地址已知"
         pills += '<span class="card-pill card-pill-distance">\ud83d\udccd \u5730\u5740\u5df2\u77e5</span>';
+      }
+
+      // Business hours status
+      if (r.hours_status) {
+        var cls = r.open_now === false ? 'card-pill-closed' : 'card-pill-open';
+        pills += '<span class="card-pill ' + cls + '">' + esc(r.hours_status) + '</span>';
+      } else if (r.open_now === true) {
+        pills += '<span class="card-pill card-pill-open">營業中</span>';
+      } else if (r.open_now === false) {
+        pills += '<span class="card-pill card-pill-closed">休息中</span>';
       }
 
       // Price — hide entirely if no data

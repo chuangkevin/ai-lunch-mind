@@ -464,9 +464,10 @@ async def chat_recommendation_stream(message: str = None, lat: float = None, lng
                     "message": f"共 {len(all_restaurants)} 間餐廳，排序中...",
                 })
 
-                # Sort: distance first (nearest), then social proof, then rating
+                # Sort: open first, then distance (nearest), then social proof, then rating
                 all_restaurants.sort(
                     key=lambda r: (
+                        0 if r.get("open_now") is True else (1 if r.get("open_now") is None else 2),
                         r.get("distance_km") if r.get("distance_km") is not None else 999,
                         0 if r.get("social_proof") else 1,
                         -(r.get("rating") or 0),
