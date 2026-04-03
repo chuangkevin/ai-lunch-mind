@@ -748,7 +748,7 @@ async def chat_recommendation_stream(message: str = None):
 
             selenium_pool.shutdown(wait=False)
 
-            # Merge Uber Eats data into Google Maps results (enrich only, no new restaurants)
+            # Merge Uber Eats data into Google Maps results
             if ubereats_results and all_restaurants:
                 try:
                     all_restaurants = match_ubereats_to_restaurants(all_restaurants, ubereats_results)
@@ -761,9 +761,29 @@ async def chat_recommendation_stream(message: str = None):
                 except Exception as e:
                     logger.warning("Uber Eats merge failed: %s", e)
 
+            # Fallback: if Google Maps found nothing, use Uber Eats results directly
+            if not all_restaurants and ubereats_results:
+                yield send_event("thinking", {
+                    "step": "ubereats_fallback",
+                    "message": f"Google Maps 無結果，改用 Uber Eats {len(ubereats_results)} 間餐廳",
+                })
+                for ue_r in ubereats_results:
+                    ue_r.setdefault("address", "")
+                    ue_r.setdefault("maps_url", f"https://www.google.com/maps/search/{quote(ue_r.get('name', ''))}+{quote(search_location)}")
+                    ue_r.setdefault("food_type", keywords[0] if keywords else "")
+                    ue_r.setdefault("source", "uber_eats")
+                    ue_r.setdefault("social_proof", None)
+                    ue_r.setdefault("relevance_score", 7.0)
+                    ue_r.setdefault("estimated_price", None)
+                    ue_r.setdefault("price_level", None)
+                    ue_r.setdefault("distance_km", None)
+                all_restaurants = ubereats_results
+
+            ue_fallback = any(r.get("source") == "uber_eats" for r in all_restaurants)
+            source_label = "Uber Eats" if ue_fallback and not any(r.get("source") == "google_maps" for r in all_restaurants) else "Google Maps"
             yield send_event("thinking", {
                 "step": "search_done",
-                "message": f"Google Maps 找到 {len(all_restaurants)} 間真實餐廳",
+                "message": f"共找到 {len(all_restaurants)} 間餐廳（{source_label}）",
             })
 
             # Enrich with Gemini (ONLY add reasons to existing restaurants, never add new ones)
