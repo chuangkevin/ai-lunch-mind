@@ -307,9 +307,10 @@ def enrich_with_gemini(
 我已搜尋到以下餐廳：
 {json.dumps(existing_names, ensure_ascii=False)}
 
-請做兩件事：
+請做三件事：
 1. 移除不是餐廳的項目（如大樓、公司、公園等），標記 "remove": true
-2. 為每間已知餐廳補充資訊（如果你知道的話），特別是完整地址
+2. 判斷每間餐廳是否與使用者想吃的「{', '.join(keywords)}」相關。如果這間店明顯不賣使用者要的食物，標記 "remove": true（例如使用者要雞排，但餐廳是炒飯店、串燒店就該移除）
+3. 為相關的餐廳補充資訊（如果你知道的話），特別是完整地址
 
 重要：不要新增任何餐廳，只處理上面列出的這些。
 
@@ -322,6 +323,7 @@ def enrich_with_gemini(
     "price_level": "$150-250",
     "food_type": "日式拉麵",
     "reason": "推薦理由（一句話）",
+    "remove": false,
     "is_new": false
   }}
 ]
@@ -332,7 +334,8 @@ def enrich_with_gemini(
 - 地址要盡量準確
 - 價格要符合台灣物價
 - 不要估算步行距離或時間，距離由系統計算
-- 如果項目不是餐廳（如大樓、辦公室、公園），設 "remove": true"""
+- 如果項目不是餐廳（如大樓、辦公室、公園），設 "remove": true
+- 如果餐廳與使用者想吃的食物類型不相關，設 "remove": true"""
 
     try:
         client = genai.Client(api_key=api_key)
