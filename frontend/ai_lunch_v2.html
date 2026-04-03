@@ -1189,8 +1189,11 @@
       startElapsedTimer();
       setStepActive('intent');
 
-      // Open SSE
+      // Open SSE — pass GPS coordinates if available for accurate distance
       var url = '/chat-recommendation-stream?message=' + encodeURIComponent(fullMessage);
+      if (userCoords && userCoords.lat && userCoords.lng) {
+        url += '&lat=' + userCoords.lat + '&lng=' + userCoords.lng;
+      }
       var es = new EventSource(url);
       currentEventSource = es;
 

@@ -136,10 +136,11 @@ def _enrich_restaurant(r: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @app.get("/chat-recommendation-stream")
-async def chat_recommendation_stream(message: str = None):
+async def chat_recommendation_stream(message: str = None, lat: float = None, lng: float = None):
     """SSE streaming endpoint for real-time recommendation progress."""
     if not message:
         raise HTTPException(status_code=400, detail="Missing message")
+    user_coords = (lat, lng) if lat is not None and lng is not None else None
 
     async def event_stream():
         import json
@@ -406,7 +407,7 @@ async def chat_recommendation_stream(message: str = None):
                     from modules.fast_search import calculate_real_distances
                     all_restaurants = await loop.run_in_executor(
                         None,
-                        lambda: calculate_real_distances(all_restaurants, search_location),
+                        lambda: calculate_real_distances(all_restaurants, search_location, user_coords=user_coords),
                     )
                     # Filter by max distance + sort
                     # Filter: try preferred distance, expand if nothing found
@@ -463,9 +464,10 @@ async def chat_recommendation_stream(message: str = None):
                     "message": f"共 {len(all_restaurants)} 間餐廳，排序中...",
                 })
 
-                # Sort: restaurants with social proof first, then by rating
+                # Sort: distance first (nearest), then social proof, then rating
                 all_restaurants.sort(
                     key=lambda r: (
+                        r.get("distance_km") if r.get("distance_km") is not None else 999,
                         0 if r.get("social_proof") else 1,
                         -(r.get("rating") or 0),
                     ),

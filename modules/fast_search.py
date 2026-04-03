@@ -14,78 +14,107 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 
+def _extract_coords_from_maps_url(url: str) -> Optional[tuple]:
+    """Extract (lat, lng) from a Google Maps place URL like /@25.061,121.433,17z/."""
+    if not url:
+        return None
+    m = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
+    if m:
+        lat, lng = float(m.group(1)), float(m.group(2))
+        # Sanity check: must be in Taiwan range
+        if 21.5 < lat < 26.5 and 119.0 < lng < 122.5:
+            return (lat, lng)
+    return None
+
+
 def calculate_real_distances(
     restaurants: List[Dict],
     user_location: str,
+    user_coords: Optional[tuple] = None,
 ) -> List[Dict]:
-    """Calculate real distances using ArcGIS geocoding + geodesic formula.
+    """Calculate real distances.
 
-    No AI needed. ArcGIS supports Chinese addresses natively.
+    Priority for user location:  frontend GPS coords > ArcGIS geocoding
+    Priority for restaurant location:  Maps URL coords > ArcGIS geocoding
+    Walking estimate:  straight-line * 1.3 (Taiwan urban alley factor)
     """
     try:
-        from geopy.geocoders import ArcGIS
         from geopy.distance import geodesic
 
-        geolocator = ArcGIS(timeout=5)
+        # --- Resolve user coordinates ---
+        if user_coords:
+            logger.info("User coords from GPS: (%.5f, %.5f)", *user_coords)
+        else:
+            # Fallback: geocode user location text
+            try:
+                from geopy.geocoders import ArcGIS
+                geolocator = ArcGIS(timeout=5)
+                user_geo = None
+                for variant in [
+                    user_location,
+                    user_location + " 台灣",
+                    user_location.replace("科大", "科技大學") + " 台灣",
+                    user_location + " Taiwan",
+                ]:
+                    user_geo = geolocator.geocode(variant)
+                    if user_geo:
+                        break
+                if user_geo:
+                    user_coords = (user_geo.latitude, user_geo.longitude)
+                    logger.info("User coords from ArcGIS: %s -> (%.5f, %.5f)", user_location, *user_coords)
+                else:
+                    logger.warning("Cannot geocode user location: %s", user_location)
+                    return restaurants
+            except Exception as e:
+                logger.warning("User geocoding failed: %s", e)
+                return restaurants
 
-        # Geocode user location — try multiple formats
-        user_geo = None
-        for variant in [
-            user_location,
-            user_location + " 台灣",
-            user_location.replace("科大", "科技大學").replace("大學", "大學 台灣"),
-            user_location + " Taiwan",
-        ]:
-            user_geo = geolocator.geocode(variant)
-            if user_geo:
-                break
-        if not user_geo:
-            logger.warning("Cannot geocode user location: %s", user_location)
-            return restaurants
-
-        user_coords = (user_geo.latitude, user_geo.longitude)
-        # Extract area name from geocoded address for prefixing short addresses
-        area_prefix = ""
-        if user_geo.address:
-            # ArcGIS returns addresses like "明志科技大學, 泰山區, 新北市, Taiwan"
-            # Extract the city+district portion
-            parts = [p.strip() for p in user_geo.address.split(",")]
-            for p in parts:
-                if re.search(r'[市縣]$', p):
-                    area_prefix = p + area_prefix
-                elif re.search(r'[區鎮鄉]$', p):
-                    area_prefix = p
-        logger.info("User: %s -> (%.4f, %.4f), area=%s", user_location, *user_coords, area_prefix)
+        # --- Calculate distance for each restaurant ---
+        geolocator = None  # lazy init only if needed
 
         for r in restaurants:
-            addr = r.get("address", "")
+            # Priority 1: extract coords from Google Maps URL
+            rest_coords = _extract_coords_from_maps_url(r.get("maps_url", ""))
 
-            # Skip if address is just "附近"
-            if not addr or addr.endswith("附近"):
-                addr = r.get("name", "") + " " + (area_prefix or user_location)
+            # Priority 2: fallback to ArcGIS geocoding
+            if not rest_coords:
+                addr = r.get("address", "")
+                if not addr or addr.endswith("附近"):
+                    addr = r.get("name", "") + " " + user_location + " 台灣"
+                elif not re.search(r'[市縣區鎮鄉]', addr):
+                    addr = addr + " " + user_location + " 台灣"
 
-            # If address is short (just road name, no city/district), prepend area
-            if addr and not re.search(r'[市縣區鎮鄉]', addr) and area_prefix:
-                addr = area_prefix + addr
+                try:
+                    if geolocator is None:
+                        from geopy.geocoders import ArcGIS
+                        geolocator = ArcGIS(timeout=5)
+                    rest_geo = geolocator.geocode(addr)
+                    if rest_geo:
+                        candidate = (rest_geo.latitude, rest_geo.longitude)
+                        # Sanity: must be within 50km of user (reject geocoding errors)
+                        if geodesic(user_coords, candidate).kilometers < 50:
+                            rest_coords = candidate
+                        else:
+                            logger.warning("  ArcGIS result too far for %s: %.1fkm", r.get("name"), geodesic(user_coords, candidate).kilometers)
+                except Exception as e:
+                    logger.warning("  Geocode error for %s: %s", r.get("name"), e)
 
-            try:
-                rest_geo = geolocator.geocode(addr)
-                if rest_geo:
-                    rest_coords = (rest_geo.latitude, rest_geo.longitude)
-                    dist_km = geodesic(user_coords, rest_coords).kilometers
+            if not rest_coords:
+                continue
 
-                    # Sanity check: if distance < 30m, geocode probably hit the same point
-                    if dist_km < 0.03:
-                        continue  # Skip, don't show fake 0m distance
+            dist_km = geodesic(user_coords, rest_coords).kilometers
 
-                    walking_km = dist_km * 1.8  # Urban walking factor (1.3 was too low for Taiwan alleys)
-                    walking_minutes = round(walking_km / 4 * 60)  # 4km/h urban walking speed
+            # Skip if distance < 20m (geocode probably hit the same point)
+            if dist_km < 0.02:
+                continue
 
-                    r["distance_km"] = round(dist_km, 2)
-                    r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
-                    r["walking_minutes"] = walking_minutes
-            except Exception as e:
-                logger.warning("  Geocode error for %s: %s", r.get("name"), e)
+            walking_km = dist_km * 1.3  # Urban walking factor for Taiwan alleys
+            walking_minutes = max(1, round(walking_km / 4 * 60))  # 4km/h walking speed
+
+            r["distance_km"] = round(dist_km, 2)
+            r["walking_distance"] = f"{round(walking_km * 1000)}m" if walking_km < 1 else f"{walking_km:.1f}km"
+            r["walking_minutes"] = walking_minutes
+            r["_coords"] = rest_coords  # keep for debugging
 
     except ImportError:
         logger.warning("geopy not available")
