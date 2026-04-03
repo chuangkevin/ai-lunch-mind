@@ -763,11 +763,22 @@ async def chat_recommendation_stream(message: str = None):
 
             # Fallback: if Google Maps found nothing, use Uber Eats results directly
             if not all_restaurants and ubereats_results:
+                # Filter out non-restaurant stores (supermarkets, convenience stores, etc.)
+                _NON_RESTAURANT = ["百貨", "超市", "便利", "7-ELEVEN", "全家", "萊爾富",
+                                   "OK超商", "家樂福", "全聯", "小北", "寶雅", "屈臣氏",
+                                   "康是美", "大潤發", "好市多", "Costco", "美廉社"]
+                filtered_ue = [
+                    r for r in ubereats_results
+                    if not any(ex in r.get("name", "") for ex in _NON_RESTAURANT)
+                ]
+                if not filtered_ue:
+                    filtered_ue = ubereats_results  # fallback to all if nothing left
+
                 yield send_event("thinking", {
                     "step": "ubereats_fallback",
-                    "message": f"Google Maps 無結果，改用 Uber Eats {len(ubereats_results)} 間餐廳",
+                    "message": f"Google Maps 無結果，改用 Uber Eats {len(filtered_ue)} 間餐廳",
                 })
-                for ue_r in ubereats_results:
+                for ue_r in filtered_ue:
                     ue_r.setdefault("address", "")
                     ue_r.setdefault("maps_url", f"https://www.google.com/maps/search/{quote(ue_r.get('name', ''))}+{quote(search_location)}")
                     ue_r.setdefault("food_type", keywords[0] if keywords else "")
@@ -777,7 +788,7 @@ async def chat_recommendation_stream(message: str = None):
                     ue_r.setdefault("estimated_price", None)
                     ue_r.setdefault("price_level", None)
                     ue_r.setdefault("distance_km", None)
-                all_restaurants = ubereats_results
+                all_restaurants = filtered_ue
 
             ue_fallback = any(r.get("source") == "uber_eats" for r in all_restaurants)
             source_label = "Uber Eats" if ue_fallback and not any(r.get("source") == "google_maps" for r in all_restaurants) else "Google Maps"
