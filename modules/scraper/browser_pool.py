@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -94,7 +95,8 @@ def create_chrome_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--lang=zh-TW')
 
     try:
-        driver = webdriver.Chrome(options=options)
+        service = Service(executable_path='/usr/bin/chromedriver') if os.path.isfile('/usr/bin/chromedriver') else None
+        driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
         driver.execute_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
@@ -138,7 +140,8 @@ def create_chrome_driver_fast(headless: bool = True) -> webdriver.Chrome:
     )
 
     try:
-        driver = webdriver.Chrome(options=options)
+        service = Service(executable_path='/usr/bin/chromedriver') if os.path.isfile('/usr/bin/chromedriver') else None
+        driver = webdriver.Chrome(options=options, service=service) if service else webdriver.Chrome(options=options)
         return driver
     except Exception as e:
         logger.error(f"Failed to create fast Chrome driver: {e}")
