@@ -108,9 +108,13 @@ def search_ubereats(
                     eta = m.get("text", "")
                     break
 
-        # Build Uber Eats URL
+        # Build Uber Eats URL — only keep real store page URLs
         action_url = store.get("actionUrl", "")
-        uber_eats_url = f"https://www.ubereats.com{action_url}" if action_url else ""
+        uber_eats_url = ""
+        if action_url and "/store/" in action_url:
+            uber_eats_url = f"https://www.ubereats.com{action_url}"
+        elif action_url:
+            logger.debug("Skipping non-store actionUrl: %s", action_url)
 
         # Get image
         image_url = ""
@@ -158,9 +162,12 @@ def match_ubereats_to_restaurants(
     # Normalize names for matching
     def normalize(name: str) -> str:
         name = name.lower().strip()
-        # Remove common suffixes like store location
-        name = re.sub(r'\s*[\(（].*?[\)）]', '', name)
-        name = re.sub(r'\s*(店|分店|門市)$', '', name)
+        # Remove parenthesized content (half/full-width, brackets)
+        name = re.sub(r'\s*[\(（\[【].*?[\)）\]】]', '', name)
+        # Remove common suffixes
+        name = re.sub(r'\s*(店|分店|門市|總店|旗艦店)$', '', name)
+        # Collapse whitespace
+        name = re.sub(r'\s+', '', name)
         return name
 
     ue_by_norm = {}
@@ -184,16 +191,19 @@ def match_ubereats_to_restaurants(
             matched_count += 1
             continue
 
-        # Try substring match
+        # Try substring match with length-ratio guard to prevent false positives
         for ue_norm, ue in ue_by_norm.items():
-            if len(g_norm) >= 2 and len(ue_norm) >= 2:
+            if len(g_norm) >= 3 and len(ue_norm) >= 3:
                 if g_norm in ue_norm or ue_norm in g_norm:
-                    gr["uber_eats_url"] = ue.get("uber_eats_url", "")
-                    gr["uber_eats_eta"] = ue.get("eta", "")
-                    gr["uber_eats_rating"] = ue.get("rating")
-                    matched_norms.add(ue_norm)
-                    matched_count += 1
-                    break
+                    shorter = min(len(g_norm), len(ue_norm))
+                    longer = max(len(g_norm), len(ue_norm))
+                    if shorter / longer >= 0.4:
+                        gr["uber_eats_url"] = ue.get("uber_eats_url", "")
+                        gr["uber_eats_eta"] = ue.get("eta", "")
+                        gr["uber_eats_rating"] = ue.get("rating")
+                        matched_norms.add(ue_norm)
+                        matched_count += 1
+                        break
 
     logger.info("Uber Eats matched %d/%d Google Maps restaurants", matched_count, len(google_restaurants))
     return google_restaurants

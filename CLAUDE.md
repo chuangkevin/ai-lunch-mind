@@ -150,23 +150,22 @@ CWB_API_KEY=your_cwb_api_key  # Optional, for real weather data
 
 ### FastAPI Endpoints
 
-**Main Recommendation APIs:**
-- `GET /chat-recommendation` - Staged conversational recommendation (phase: "start" | "search")
-- `POST /chat/recommend` - JSON-based staged recommendation
-- `GET /ai-lunch-recommendation` - Direct recommendation with location + user_input
+**Core API:**
+- `GET /chat-recommendation-stream` - SSE streaming recommendation (the only API used by the frontend)
 
-**Support APIs:**
-- `GET /weather` - Weather query (supports lat/long or location name)
-- `GET /sweat-index` - Sweat index calculation
-- `GET /restaurants` - Direct restaurant search
-- `GET /location-options` - Location disambiguation
+**Key Management APIs:**
+- `POST /api/keys/import` - Bulk import Gemini API keys
+- `GET /api/keys/status` - Key status overview
+- `DELETE /api/keys/{suffix}` - Delete a key by suffix
+- `GET /api/keys/usage` - Usage statistics
+
+**Utility:**
+- `GET /health` - Health check
 
 **Pages:**
-- `/` - Homepage
-- `/ai_lunch` - Main chat interface (primary UI)
-- `/restaurant` - Restaurant search page
-- `/weather_page` - Weather query page
-- `/sweat_index` - Sweat index page
+- `/` - AI lunch recommendation (main and only UI)
+- `/ai_lunch` - Backward-compatible alias for `/`
+- `/settings` - Gemini key management
 
 ## Important Implementation Details
 
