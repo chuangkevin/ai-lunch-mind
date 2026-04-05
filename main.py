@@ -520,7 +520,7 @@ def health_check():
         return {
             "status": "healthy",
             "service": "AI Lunch Mind",
-            "version": "5.0.0",
+            "version": "5.1.0",
             "cwb_api_key": api_key_status,
             "gemini_keys": gemini_key_count,
             "endpoints": [

@@ -54,6 +54,10 @@ _TIME_BASED_KEYWORDS = {
 # ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = """你是一個台灣餐廳推薦系統的意圖分析引擎。你的任務是分析使用者的自然語言輸入，並結合天氣與時間資訊，產出結構化的搜尋意圖。
 
+## 核心原則
+
+**使用者明確指定的食物類型永遠是最高優先級。** 天氣只是次要參考因素，絕對不能產生與使用者需求相衝突的搜尋關鍵字。例如，使用者說「想吃拉麵」，即使天氣炎熱，primary_keywords 和 secondary_keywords 仍應是拉麵相關詞彙，不可改成冰品或涼食。
+
 ## 你必須提取的欄位
 
 1. **location** — 使用者提到的地點、地標、地址或區域名稱。
@@ -64,13 +68,14 @@ _SYSTEM_PROMPT = """你是一個台灣餐廳推薦系統的意圖分析引擎。
 2. **primary_keywords** — 使用者明確想吃的食物，2-4 個具體詞彙。
    - 「拉麵」→ ["拉麵", "日式拉麵"]
    - 「牛肉麵」→ ["牛肉麵", "紅燒牛肉麵"]
-   - 若使用者沒有指定食物類型，根據時段與天氣推薦 2-3 個合適的食物。
+   - **若使用者有明確指定食物，必須忠實反映，不受天氣影響。**
+   - 若使用者沒有指定食物類型，根據時段推薦 2-3 個合適的食物。
 
-3. **secondary_keywords** — 根據天氣/時段建議的替代選項，2-3 個。
-   - 天氣熱 (>30°C / 流汗指數 ≥7) → 偏涼爽食物：冰品、涼麵、沙拉、冷麵
-   - 天氣冷 (<18°C) → 偏暖食物：火鍋、湯品、熱炒
-   - 下雨機率高 (>60%) → 偏近距離/外帶友善：便當、小吃
-   - 舒適天氣 → 各類食物皆可
+3. **secondary_keywords** — 與使用者需求相關的相似菜系或替代選項，2-3 個。
+   - 「拉麵」→ ["烏龍麵", "日式定食"]（相近菜系）
+   - 「牛肉麵」→ ["麵食", "湯麵"]（同大類）
+   - **不要因天氣而在此欄位產生與使用者需求不相關的食物。**
+   - 若使用者沒有指定食物，根據時段提供 2-3 個建議。
 
 4. **budget** — 預算資訊。
    - 解析「200元以內」→ {"max": 200, "currency": "TWD"}
@@ -97,6 +102,12 @@ _SYSTEM_PROMPT = """你是一個台灣餐廳推薦系統的意圖分析引擎。
    - "search_specific_store" — 搜尋特定店名（麥當勞、星巴克等）
    - "search_restaurants" — 泛用搜尋（想找餐廳但沒有太具體的要求）
 
+8. **weather_hints** — 天氣對食物的輕微建議（僅供評分系統參考，不作為搜尋關鍵字），0-2 個。
+   - 天氣熱 (>30°C / 流汗指數 ≥7) → ["冰品", "涼麵"]
+   - 天氣冷 (<18°C) → ["火鍋", "湯品"]
+   - 下雨機率高 (>60%) → ["便當"]
+   - 天氣舒適或無資料 → []
+
 ## 回應格式
 
 你只能回傳一個有效的 JSON 物件，格式如下，不要有任何多餘的文字、Markdown 或解釋：
@@ -108,7 +119,8 @@ _SYSTEM_PROMPT = """你是一個台灣餐廳推薦系統的意圖分析引擎。
   "budget": {"min": null, "max": 200, "currency": "TWD"} 或 null,
   "estimated_price_range": "平價|中等|高價",
   "search_radius_hint": "近距離|中距離|遠距離可",
-  "intent": "search_food_type|location_query|search_specific_store|search_restaurants"
+  "intent": "search_food_type|location_query|search_specific_store|search_restaurants",
+  "weather_hints": ["冰品"]
 }"""
 
 # ---------------------------------------------------------------------------
@@ -289,11 +301,13 @@ def _fallback_analysis(
         period = _get_time_period(current_hour)
         primary_keywords = _TIME_BASED_KEYWORDS.get(period, ["便當", "小吃"])[:3]
 
-    # --- 次要關鍵字（天氣導向） ---
-    secondary_keywords = _weather_secondary_keywords(weather_data)
+    # --- 次要關鍵字（與使用者需求相關的同類型食物，不受天氣影響） ---
+    period = _get_time_period(current_hour)
+    time_kws = _TIME_BASED_KEYWORDS.get(period, ["便當", "小吃"])
+    secondary_keywords = [kw for kw in time_kws if kw not in primary_keywords][:3]
 
-    # --- 去重：確保 secondary_keywords 不與 primary_keywords 重疊 ---
-    secondary_keywords = [kw for kw in secondary_keywords if kw not in primary_keywords]
+    # --- 天氣提示（軟信號，僅供評分參考，不作為搜尋關鍵字） ---
+    weather_hints = _weather_secondary_keywords(weather_data)
 
     # --- 價格帶 ---
     estimated_price_range = _estimate_price_range(budget, detected_categories)
@@ -310,6 +324,7 @@ def _fallback_analysis(
         "estimated_price_range": estimated_price_range,
         "search_radius_hint": search_radius_hint,
         "intent": intent,
+        "weather_hints": weather_hints,
         "raw_input": user_input,
         "_source": "fallback",
     }
@@ -433,6 +448,9 @@ def analyze_intent(
         primary_set = set(primary_keywords)
         secondary_keywords = [kw for kw in secondary_keywords if kw not in primary_set]
 
+        # weather_hints: soft scoring signal only — never used as search keywords
+        weather_hints = parsed.get("weather_hints", []) or _weather_secondary_keywords(weather_data)
+
         result = {
             "success": True,
             "location": parsed.get("location"),
@@ -442,6 +460,7 @@ def analyze_intent(
             "estimated_price_range": parsed.get("estimated_price_range", "中等"),
             "search_radius_hint": parsed.get("search_radius_hint", "中距離"),
             "intent": parsed.get("intent", "search_restaurants"),
+            "weather_hints": weather_hints,
             "raw_input": user_input,
             "_source": "gemini",
         }
@@ -454,15 +473,6 @@ def analyze_intent(
                 if kw not in result["primary_keywords"]:
                     result["primary_keywords"].append(kw)
                 if len(result["primary_keywords"]) >= 2:
-                    break
-
-        # 確保 secondary_keywords 至少有 2 個
-        if len(result["secondary_keywords"]) < 2:
-            weather_kws = _weather_secondary_keywords(weather_data)
-            for kw in weather_kws:
-                if kw not in result["secondary_keywords"] and kw not in result["primary_keywords"]:
-                    result["secondary_keywords"].append(kw)
-                if len(result["secondary_keywords"]) >= 2:
                     break
 
         # --- 寫入快取 ---

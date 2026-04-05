@@ -214,10 +214,10 @@ def calculate_final_score(
     )
 
     final = (
-        0.30 * distance_score
-        + 0.25 * relevance_score
-        + 0.20 * google_rating_score
-        + 0.15 * social_score
+        0.20 * distance_score
+        + 0.35 * relevance_score
+        + 0.25 * google_rating_score
+        + 0.10 * social_score
         + 0.10 * budget_score
     )
     return round(final, 1)
@@ -273,13 +273,16 @@ def _build_scoring_prompt(
 
     prompt = f"""你是午餐推薦系統的餐廳相關性評分器。請根據使用者需求，為每間餐廳評分。
 
+## 核心原則
+**使用者的明確需求是評分的最高依據。** 若使用者有指定食物類型，相關性評分應以此為主要依據，天氣因素不影響評分。
+
 ## 使用者原始需求
 {user_request}
 
 ## 使用者位置
 {location_desc if location_desc else '未指定'}
 
-## 已分析的關鍵字
+## 已分析的主要關鍵字（使用者明確需求）
 {json.dumps(keywords, ensure_ascii=False)}
 
 ## 預算資訊
@@ -292,11 +295,12 @@ def _build_scoring_prompt(
 請為每間餐廳進行以下評估：
 
 ### 相關性分數 (relevance_score: 0-10)
-- 9-10: 完美匹配（例如使用者要「拉麵」，餐廳名稱或類型就是拉麵店）
+評分依據是「餐廳是否符合使用者的明確需求」，不受天氣影響。
+- 9-10: 完美匹配（例如使用者要「拉麵」，餐廳就是拉麵店）
 - 7-8: 強相關（相關料理類型，例如使用者要「拉麵」，餐廳是日式料理含有拉麵品項）
 - 4-6: 中等相關（同大類別，例如使用者要「拉麵」，餐廳是麵食類）
-- 1-3: 弱相關（不同料理類型）
-- 0: 完全不相關
+- 1-3: 弱相關（不同料理類型但有提供食物）
+- 0: 完全不相關（非食物場所）
 
 ### 估計價格 (estimated_price)
 - 如果餐廳已有價位資訊，保留原始資訊
@@ -304,8 +308,8 @@ def _build_scoring_prompt(
 - 格式：「$下限-上限」，例如「$180-250」
 
 ### 推薦理由 (reason)
-- 用一句話說明為何推薦或不推薦此餐廳
-- 包含匹配度、距離、特色等關鍵資訊
+- 用一句話說明為何推薦此餐廳
+- 著重說明與使用者需求的匹配度和特色
 - 使用繁體中文
 
 ## 回應格式
