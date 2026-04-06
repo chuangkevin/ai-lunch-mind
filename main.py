@@ -196,15 +196,23 @@ async def chat_recommendation_stream(message: str = None, lat: float = None, lng
             except Exception as e:
                 yield send_event("thinking", {"step": "weather", "message": f"天氣查詢跳過: {str(e)[:30]}"})
 
-            # Intent
-            intent = await loop.run_in_executor(
-                None,
-                lambda: analyze_intent(
-                    user_input=message,
-                    weather_data=weather_data,
-                    current_hour=current_hour,
-                ),
-            )
+            # Intent (20s timeout — Gemini can hang if API is slow or keys exhausted)
+            try:
+                intent = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: analyze_intent(
+                            user_input=message,
+                            weather_data=weather_data,
+                            current_hour=current_hour,
+                        ),
+                    ),
+                    timeout=20,
+                )
+            except asyncio.TimeoutError:
+                yield send_event("thinking", {"step": "intent", "message": "意圖分析超時，使用快速模式"})
+                from modules.ai.intent_analyzer import _fallback_analysis
+                intent = _fallback_analysis(message, weather_data, current_hour)
 
             location = intent.get("location", "")
             keywords = intent.get("primary_keywords", [])

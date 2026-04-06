@@ -211,7 +211,7 @@ def _call_gemini(user_message: str, *, api_key=None) -> str:
     透過 gemini_pool 呼叫 Gemini API，回傳原始文字回應。
     使用 @gemini_pool.auto_retry 裝飾器處理暫時性失敗與 key 輪替。
     """
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"timeout": 15})
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=user_message,
