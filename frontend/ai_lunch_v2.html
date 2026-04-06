@@ -880,10 +880,17 @@
     }
 
     function requestGeolocation() {
-      if (!navigator.geolocation) {
-        alert('\u60a8\u7684\u700f\u89bd\u5668\u4e0d\u652f\u63f4\u5b9a\u4f4d\u529f\u80fd\uff0c\u8acb\u624b\u52d5\u8f38\u5165\u4f4d\u7f6e\u3002');
+      // Geolocation requires a secure context (HTTPS or localhost)
+      if (!window.isSecureContext) {
+        alert('GPS 定位需要 HTTPS 連線。請改用 https:// 存取本站，或在瀏覽器網址列點擊鎖頭圖示允許定位。');
         return;
       }
+      if (!navigator.geolocation) {
+        alert('您的瀏覽器不支援定位功能，請手動輸入位置。');
+        return;
+      }
+      // Prevent duplicate concurrent requests
+      if (gpsBtn.classList.contains('loading')) return;
       gpsBtn.classList.add('loading');
 
       navigator.geolocation.getCurrentPosition(
@@ -911,13 +918,13 @@
         },
         function(err) {
           gpsBtn.classList.remove('loading');
-          var msg = '\u5b9a\u4f4d\u5931\u6557\u3002';
-          if (err.code === 1) msg = '\u60a8\u62d2\u7d55\u4e86\u5b9a\u4f4d\u6b0a\u9650\u3002';
-          else if (err.code === 2) msg = '\u7121\u6cd5\u53d6\u5f97\u4f4d\u7f6e\u8cc7\u8a0a\u3002';
-          else if (err.code === 3) msg = '\u5b9a\u4f4d\u8d85\u6642\u3002';
-          alert(msg + ' \u8acb\u9ede\u64ca\u4e0a\u65b9\u4f4d\u7f6e\u5713\u9328\u624b\u52d5\u8a2d\u5b9a\u3002');
+          var msg = '定位失敗。';
+          if (err.code === 1) msg = '定位權限被拒絕。請在瀏覽器網址列點「允許」，或至瀏覽器設定重新開啟。';
+          else if (err.code === 2) msg = '無法取得位置資訊。';
+          else if (err.code === 3) msg = '定位超時，請再試一次。';
+          alert(msg);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
 
@@ -1428,12 +1435,8 @@
         renderLocationPill();
       }
 
-      // Auto-request GPS on first visit only if no manual location saved
-      setTimeout(function() {
-        if (!userCoords && !localStorage.getItem('manual_location') && navigator.geolocation) {
-          requestGeolocation();
-        }
-      }, 1500);
+      // Auto-request removed: geolocation requires a direct user gesture in modern browsers.
+      // The GPS button (📍) must be clicked manually to trigger the permission dialog.
     });
   </script>
 </body>
