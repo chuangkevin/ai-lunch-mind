@@ -12,3 +12,12 @@ tests/
 **/tests/
 extract_minimal.py
 modules/google_maps_optimized.py
+
+# Node.js
+node_modules/
+dist/
+package-lock.json
+
+# SQLite cache
+*.db
+data/

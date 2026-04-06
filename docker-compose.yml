@@ -8,9 +8,11 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONIOENCODING=utf-8
+      - NODE_ENV=production
+      - PORT=9113
       - CACHE_DB_PATH=/app/data/cache.db
+      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
     shm_size: '2gb'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9113/health"]

@@ -1,25 +1,37 @@
-FROM python:3.12-slim
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install Chromium (works on ARM64/Raspberry Pi) + CJK fonts
+# Install Chromium (works on ARM64/Raspberry Pi), CJK fonts, and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium chromium-driver \
+    chromium \
     fonts-noto-cjk \
     curl \
+    python3 \
+    make \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Tell Playwright to use system Chromium instead of downloading its own
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Application code
-COPY . .
+# Install npm dependencies (including native better-sqlite3)
+COPY package.json ./
+# Use npm install instead of ci since we may not have a lockfile yet
+RUN npm install --omit=optional
 
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONIOENCODING=utf-8
-ENV CHROME_BIN=/usr/bin/chromium
+# Build TypeScript
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# Copy frontend (static HTML files)
+COPY frontend ./frontend
+
+ENV NODE_ENV=production
+ENV PORT=9113
 
 EXPOSE 9113
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9113", "--log-level", "info"]
+CMD ["node", "dist/server.js"]

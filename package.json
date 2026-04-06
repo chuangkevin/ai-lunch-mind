@@ -1,0 +1,27 @@
+{
+  "name": "ai-lunch-mind",
+  "version": "6.0.0",
+  "description": "AI-powered lunch recommendation system for Taiwan",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@kevinsisi/ai-core": "github:kevinsisi/ai-core",
+    "axios": "^1.7.2",
+    "better-sqlite3": "^11.1.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "playwright": "^1.45.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  }
+}
