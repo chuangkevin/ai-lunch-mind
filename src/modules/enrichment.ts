@@ -35,18 +35,24 @@ export async function enrichWithGemini(
       ? `\n天氣：${weather.temperature}°C，流汗指數 ${weather.sweat_index ?? 'N/A'}`
       : '';
 
-  const prompt = `你是台灣餐廳專家。使用者在 ${location} 想吃 ${keywords.join(', ')}。${budgetHint}${weatherHint}
+  const prompt = `你是台灣餐廳專家。使用者在 ${location} 想吃【${keywords.join('、')}】。${budgetHint}${weatherHint}
 
 我已搜尋到以下餐廳：
 ${JSON.stringify(existingNames, null, 2)}
 
 請做兩件事：
-1. 移除明顯不是餐廳/食物場所的項目（辦公大樓、公園、捷運站、便利商店等），標記 "remove": true
+1. 移除不符合的項目，設 "remove": true，條件如下（符合任一即移除）：
+   a. 完全不是餐廳/食物場所（辦公大樓、公園、捷運站、便利商店等）
+   b. 與使用者要求的食物類型【${keywords.join('、')}】明顯無關（例如使用者要拉麵，卻出現韓式烤肉、漢堡、麵包店）
 2. 為保留的餐廳補充資訊（地址、評分、價格、推薦理由）
 
-重要原則：
-- 只有「完全不是食物/餐飲場所」才設 remove: true
-- 餐廳、小吃店、咖啡廳、任何有提供食物的地方一律保留（remove: false）
+判斷食物相關性的原則：
+- 使用者指定的食物關鍵字是最高優先——相同或相似料理類型才保留
+- 「相似」例子：搜拉麵 → 保留拉麵店、日式麵食；搜便當 → 保留便當店、快餐
+- 「明顯無關」例子：搜拉麵 → 移除韓式烤肉、印度料理、早餐店、麥當勞、海南雞飯
+- 若餐廳名稱無法判斷食物類型（如「幸福小館」），保留（remove: false）
+
+其他原則：
 - 不要新增任何餐廳（is_new 必須是 false）
 - 價格要符合台灣物價
 - 地址盡量具體到路名門牌
