@@ -128,15 +128,15 @@ export async function analyzeIntent(
     parsed = await generateJSON<GeminiIntentResponse>(prompt, SYSTEM_PROMPT);
   } catch (e) {
     console.error('[intent] Gemini failed:', e);
-    // Minimal fallback: return generic intent so the search can continue
+    // Fallback: preserve the user's raw input as the search keyword
     const fallback: Intent = {
       location: null,
-      primary_keywords: ['便當', '小吃'],
+      primary_keywords: [userInput],
       secondary_keywords: ['餐廳'],
       budget: null,
       estimated_price_range: '中等',
       search_radius_hint: '中距離',
-      intent: 'search_restaurants',
+      intent: 'search_food_type',
       weather_hints: [],
       raw_input: userInput,
       _source: 'fallback',
@@ -149,16 +149,15 @@ export async function analyzeIntent(
     .filter((kw) => !primaryKeywords.includes(kw))
     .slice(0, 3);
 
-  // Ensure at least 2 primary keywords
-  const defaultsByHour = hour >= 5 && hour < 10
-    ? ['早餐', '蛋餅']
-    : hour >= 17
-    ? ['熱炒', '便當']
-    : ['便當', '小吃'];
-
-  for (const kw of defaultsByHour) {
-    if (primaryKeywords.length >= 2) break;
-    if (!primaryKeywords.includes(kw)) primaryKeywords.push(kw);
+  // Only pad with time-based defaults when Gemini returned NO keywords at all
+  // (i.e. user gave no food hint). Never overwrite user-specified food keywords.
+  if (primaryKeywords.length === 0) {
+    const defaultsByHour = hour >= 5 && hour < 10
+      ? ['早餐', '蛋餅']
+      : hour >= 17
+      ? ['熱炒', '便當']
+      : ['便當', '小吃'];
+    primaryKeywords.push(...defaultsByHour.slice(0, 2));
   }
 
   const result: Intent = {
