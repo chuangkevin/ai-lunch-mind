@@ -20,3 +20,4 @@ dist/
 # SQLite cache
 *.db
 data/
+.claude/
