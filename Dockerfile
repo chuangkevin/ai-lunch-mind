@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     fonts-noto-cjk \
     curl \
+    git \
     python3 \
     make \
     g++ \
@@ -17,9 +18,8 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install npm dependencies (including native better-sqlite3)
-COPY package.json ./
-# Use npm install instead of ci since we may not have a lockfile yet
-RUN npm install --omit=optional
+COPY package*.json ./
+RUN npm ci --omit=optional
 
 # Build TypeScript
 COPY tsconfig.json ./
