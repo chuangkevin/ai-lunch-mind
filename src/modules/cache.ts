@@ -14,7 +14,7 @@ const DB_PATH = process.env.CACHE_DB_PATH
 // TTL constants (seconds)
 export const TTL = {
   restaurant: 30 * 60,   // 30 minutes
-  weather: 15 * 60,      // 15 minutes
+  weather: 3 * 60 * 60,  // 3 hours
   intent: 60 * 60,       // 60 minutes
   geocoding: 24 * 60 * 60, // 24 hours
 } as const;

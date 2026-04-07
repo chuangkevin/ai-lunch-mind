@@ -263,8 +263,8 @@ class SQLiteCacheManager:
                 "data_type": "weather"
             }
             
-            # 天氣資料快取30分鐘（優化：平衡freshness與效能）
-            self._set_cache_item(cache_key, "weather", weather_data, metadata, ttl_minutes=30)
+            # 天氣資料快取3小時（優化：天氣變化較慢，減少API呼叫）
+            self._set_cache_item(cache_key, "weather", weather_data, metadata, ttl_minutes=180)
             print(f"快取設置：天氣資料 {location}")
     
     # AI分析快取

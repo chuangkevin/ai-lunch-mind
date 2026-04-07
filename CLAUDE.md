@@ -173,7 +173,7 @@ CWB_API_KEY=your_cwb_api_key  # Optional, for real weather data
 
 The system uses SQLite for persistent caching to improve performance:
 - **Restaurant searches:** 30-minute TTL (searches are expensive due to Selenium)
-- **Weather data:** 15-minute TTL (balances freshness with API rate limits)
+- **Weather data:** 3-hour TTL (weather doesn't change rapidly)
 - **AI analysis:** 60-minute TTL (ChatGPT analysis is deterministic for same inputs)
 - Cache keys use SHA256 hashing of parameters
 - Database location: `cache.db` (excluded from git)
