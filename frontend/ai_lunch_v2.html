@@ -824,18 +824,30 @@
     // Location Management
     // ===================================================================
 
-    // Restore manual location from localStorage on page load
+    // Restore location from localStorage on page load
     (function() {
-      var saved = localStorage.getItem('manual_location');
-      if (saved) {
-        userCoords = { lat: null, lng: null, address: saved, source: 'manual' };
+      try {
+        var saved = localStorage.getItem('user_location_info');
+        if (saved) {
+          userCoords = JSON.parse(saved);
+        } else {
+          // Backward compatibility for old manual_location key
+          var oldSaved = localStorage.getItem('manual_location');
+          if (oldSaved) {
+            userCoords = { lat: null, lng: null, address: oldSaved, source: 'manual' };
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to restore location:', e);
       }
     })();
 
     function setLocation(address, source, lat, lng) {
       userCoords = { lat: lat || null, lng: lng || null, address: address, source: source };
-      if (source === 'manual' || source === 'chat') {
-        localStorage.setItem('manual_location', address);
+      try {
+        localStorage.setItem('user_location_info', JSON.stringify(userCoords));
+      } catch (e) {
+        console.warn('Failed to save location:', e);
       }
       renderLocationPill();
     }
@@ -858,6 +870,7 @@
 
     function clearLocation() {
       userCoords = null;
+      localStorage.removeItem('user_location_info');
       localStorage.removeItem('manual_location');
       gpsBtn.classList.remove('located');
       renderLocationPill();
