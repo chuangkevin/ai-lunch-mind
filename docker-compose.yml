@@ -8,6 +8,7 @@ services:
     volumes:
       - ./data:/app/data
     environment:
+      - TZ=Asia/Taipei
       - NODE_ENV=production
       - PORT=9113
       - CACHE_DB_PATH=/app/data/cache.db
