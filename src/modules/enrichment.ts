@@ -93,7 +93,13 @@ ${JSON.stringify(existingNames, null, 2)}
   if (removeNames.size > 0) {
     console.log('[enrichment] Removing non-restaurants:', [...removeNames]);
   }
-  const filtered = restaurants.filter((r) => !removeNames.has(r.name));
+  let filtered = restaurants.filter((r) => !removeNames.has(r.name));
+
+  // Safety: if Gemini removed everything (over-aggressive), fall back to pre-enrichment list
+  if (filtered.length === 0 && restaurants.length > 0) {
+    console.warn('[enrichment] Gemini removed all restaurants — falling back to pre-enrichment list');
+    filtered = restaurants;
+  }
 
   // Merge enriched data — only fill missing fields, never overwrite real data
   for (const r of filtered) {

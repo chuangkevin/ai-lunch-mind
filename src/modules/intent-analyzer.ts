@@ -145,6 +145,16 @@ export async function analyzeIntent(
   }
 
   const primaryKeywords = (parsed.primary_keywords ?? []).slice(0, 4);
+
+  // Ensure keywords explicitly mentioned in user input come first.
+  // Prevents time-based keywords like "宵夜" from displacing user-specified foods.
+  const userInputLower = userInput.toLowerCase();
+  primaryKeywords.sort((a, b) => {
+    const aInInput = userInputLower.includes(a.toLowerCase()) ? 0 : 1;
+    const bInInput = userInputLower.includes(b.toLowerCase()) ? 0 : 1;
+    return aInInput - bInInput;
+  });
+
   const secondaryKeywords = (parsed.secondary_keywords ?? [])
     .filter((kw) => !primaryKeywords.includes(kw))
     .slice(0, 3);
