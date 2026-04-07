@@ -141,18 +141,28 @@ export async function searchGoogleMaps(
   try {
     page.setDefaultTimeout(8000);
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 8000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 });
     } catch {
       // Partial load is OK
     }
-    await page.waitForTimeout(3000);
+    // Wait for feed or any place links to appear (up to 6s)
+    try {
+      await page.waitForSelector('a[href*="/maps/place/"]', { timeout: 6000 });
+    } catch {
+      // Feed didn't appear — will return empty
+    }
 
-    // Get all restaurant links
-    const links = await page.$$('div[role="feed"] > div > div > a[href*="/maps/place/"], a[href*="/maps/place/"]');
+    // Get all restaurant links (use broad selector; deduplicate by href in loop)
+    const links = await page.$$('a[href*="/maps/place/"]');
+    const seenHrefs = new Set<string>();
 
-    for (const link of links.slice(0, maxResults * 2)) {
+    for (const link of links) {
+      if (restaurants.length >= maxResults) break;
       try {
         const href = (await link.getAttribute('href')) ?? '';
+        if (!href || seenHrefs.has(href)) continue;
+        seenHrefs.add(href);
+
         const ariaLabel = (await link.getAttribute('aria-label')) ?? '';
 
         let name = ariaLabel;
@@ -192,7 +202,7 @@ export async function searchGoogleMaps(
           walking_minutes: null,
         });
 
-        if (restaurants.length >= maxResults) break;
+        // maxResults break is at top of loop
       } catch {
         // Skip malformed results
       }

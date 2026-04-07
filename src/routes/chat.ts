@@ -181,25 +181,34 @@ router.get('/chat-recommendation-stream', async (req: Request, res: Response) =>
           });
         }
       } else {
-        // Fallback: use Uber Eats only — but Uber Eats API ignores keyword,
-        // so filter by name keyword match first before enrichment handles the rest.
+        // Fallback: use Uber Eats only — keyword filter must be STRICT.
+        // Uber Eats ignores search keyword; showing unrelated food is worse than no results.
         const nonRestaurantsFiltered = filterNonRestaurants(ueResults);
-        // Simple keyword pre-filter: keep if name contains any search keyword,
-        // OR if name is ambiguous (short / Chinese-only with no clear food type).
         const kwLower = keywords.map((k) => k.toLowerCase());
-        const keywordFiltered = nonRestaurantsFiltered.filter((r) => {
+
+        // Pass 1: strict — name contains keyword (e.g. "拉麵" in "一蘭拉麵")
+        const strictMatched = nonRestaurantsFiltered.filter((r) =>
+          kwLower.some((k) => r.name.toLowerCase().includes(k)),
+        );
+
+        // Pass 2: only if strict pass yields < 3 — exclude obvious non-matches.
+        // No "short name" shortcut: short names (≤6 chars) are NOT guaranteed ambiguous.
+        const FOOD_TYPE_MISMATCH = [
+          '麥當勞', 'McDonald', 'KFC', '肯德基', 'Pizza', '披薩', '漢堡',
+          '早餐', '早午餐', '吐司', '豆漿', '燒肉', '烤肉', '壽司',
+          '泰式', '韓式', '越南', '印度', '海南', '咖哩', '義式', '意大利',
+          '牛排', '火鍋', '生機', '有機', '健康餐', '沙拉', '甜點', '蛋糕',
+          '麵包', '烘焙', '咖啡', '飲料', '手搖', '珍珠奶茶',
+        ];
+        const looseMatched = nonRestaurantsFiltered.filter((r) => {
           const nameLower = r.name.toLowerCase();
-          // Keep if name matches any keyword
           if (kwLower.some((k) => nameLower.includes(k))) return true;
-          // Keep if name is short/ambiguous (can't determine food type from name)
-          if (r.name.length <= 6) return true;
-          // Keep if name doesn't contain common non-matching food words
-          const clearMismatch = ['麥當勞', 'McDonald', 'KFC', '肯德基', 'Pizza', '披薩',
-            '漢堡', '早餐', '燒肉', '烤肉', '壽司', '泰式', '韓式', '越南', '印度',
-            '海南', '咖哩', '義式', '意大利', '牛排', '火鍋'].some((m) =>
-            r.name.includes(m) && !kwLower.some((k) => r.name.includes(k)));
-          return !clearMismatch;
+          return !FOOD_TYPE_MISMATCH.some(
+            (m) => r.name.includes(m) && !kwLower.some((k) => r.name.includes(k)),
+          );
         });
+
+        const keywordFiltered = strictMatched.length >= 3 ? strictMatched : looseMatched;
         sendEvent(res, 'thinking', {
           step: 'ubereats_fallback',
           message: `Google Maps 無結果，改用 Uber Eats（${keywordFiltered.length}/${nonRestaurantsFiltered.length} 間符合「${keywords[0]}」）`,
