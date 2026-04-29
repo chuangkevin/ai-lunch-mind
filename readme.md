@@ -227,6 +227,25 @@ python -m unittest test_system_overhaul -v
 
 ---
 
+## 部署
+
+### 本機開發
+
+```bash
+uvicorn main:app --host 127.0.0.1 --port 5000
+```
+
+### Docker（Production）
+
+```bash
+docker compose up -d
+# 服務跑在 port 9113，image: ghcr.io/chuangkevin/ai-lunch-mind:latest
+```
+
+`docker-compose.yml` 內含 healthcheck（`/health`）與 SQLite 持久化（`./data:/app/data`）。
+
+---
+
 ## 授權
 
 MIT License - 詳見 [LICENSE](LICENSE)
