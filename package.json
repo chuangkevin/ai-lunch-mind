@@ -1,6 +1,6 @@
 {
   "name": "ai-lunch-mind",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "AI-powered lunch recommendation system for Taiwan",
   "main": "dist/server.js",
   "scripts": {

@@ -19,7 +19,7 @@ const OPENCODE_SERVER_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD;
 
 function buildAuthHeader(): Record<string, string> {
   if (OPENCODE_SERVER_PASSWORD) {
-    const encoded = Buffer.from(`opencode:${OPENCODE_SERVER_PASSWORD}`).toString('base64');
+    const encoded = Buffer.from(`:${OPENCODE_SERVER_PASSWORD}`).toString('base64');
     return { Authorization: `Basic ${encoded}` };
   }
   return {};
@@ -114,11 +114,6 @@ interface ProviderInfo {
   }>;
 }
 
-interface AuthInfo {
-  authenticated?: string[];
-  providers?: Record<string, { authenticated?: boolean }>;
-}
-
 /** GET /api/settings/opencode/models — fetch model list from first server */
 router.get('/api/settings/opencode/models', async (_req: Request, res: Response) => {
   try {
@@ -133,31 +128,27 @@ router.get('/api/settings/opencode/models', async (_req: Request, res: Response)
 
     // Fetch providers and auth info in parallel
     let providers: ProviderInfo[] = [];
-    let authedSet = new Set<string>();
+    // /provider/auth returns a dict of providers that NEED auth; absent = already authed
+    let needsAuthIds = new Set<string>();
 
     try {
       const [providerRes, authRes] = await Promise.all([
         fetchWithTimeout(`${serverUrl}/provider`, { headers: authHeader }, MODELS_TIMEOUT_MS),
-        fetchWithTimeout(`${serverUrl}/provider/auth`, { headers: authHeader }, MODELS_TIMEOUT_MS),
+        fetchWithTimeout(`${serverUrl}/provider/auth`, { headers: authHeader }, MODELS_TIMEOUT_MS).catch(() => null),
       ]);
 
       if (providerRes.ok) {
-        const data = (await providerRes.json()) as unknown;
+        const data = (await providerRes.json()) as { all?: ProviderInfo[]; providers?: ProviderInfo[] } | ProviderInfo[];
         if (Array.isArray(data)) {
-          providers = data as ProviderInfo[];
+          providers = data;
+        } else {
+          providers = data.all ?? data.providers ?? [];
         }
       }
 
-      if (authRes.ok) {
-        const authData = (await authRes.json()) as AuthInfo;
-        // Handle both array and object forms
-        if (Array.isArray(authData.authenticated)) {
-          authedSet = new Set(authData.authenticated as string[]);
-        } else if (authData.providers && typeof authData.providers === 'object') {
-          for (const [pid, info] of Object.entries(authData.providers)) {
-            if (info?.authenticated) authedSet.add(pid);
-          }
-        }
+      if (authRes?.ok) {
+        const authData = (await authRes.json()) as Record<string, unknown>;
+        needsAuthIds = new Set(Object.keys(authData));
       }
     } catch {
       // If server is unreachable, return empty
@@ -170,7 +161,7 @@ router.get('/api/settings/opencode/models', async (_req: Request, res: Response)
       .map((p) => ({
         provider: p.id,
         name: p.name ?? p.id,
-        authed: authedSet.has(p.id),
+        authed: !needsAuthIds.has(p.id),
         models: (p.models ?? []).map((m) => ({
           id: `${p.id}/${m.id}`,
           name: m.name ?? m.id,
