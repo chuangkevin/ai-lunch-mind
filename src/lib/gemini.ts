@@ -11,6 +11,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { KeyPool, GeminiClient, SqliteAdapter } from '@kevinsisi/ai-core';
+import { getOpenCodeServers, getOpenCodeModel } from './opencode-settings.js';
+import { tryOpenCodeText } from './opencode-client.js';
 
 const DB_PATH = process.env.CACHE_DB_PATH
   ? path.resolve(process.env.CACHE_DB_PATH)
@@ -37,18 +39,35 @@ export const geminiClient = new GeminiClient(keyPool);
 const MODEL = 'gemini-2.5-flash';
 
 /**
- * Call Gemini and parse the response as JSON of type T.
+ * Call AI (OpenCode-first, Gemini fallback) and parse the response as JSON of type T.
  * System instruction includes a reminder to return plain JSON.
  */
 export async function generateJSON<T>(
   prompt: string,
   systemInstruction: string,
 ): Promise<T> {
+  const jsonSystemInstruction =
+    systemInstruction +
+    '\n\n回應必須是有效的 JSON，不要有任何 Markdown 格式（不要 ```json）或額外文字。';
+
+  // Try OpenCode first
+  const servers = getOpenCodeServers();
+  if (servers.length > 0) {
+    try {
+      const ocResult = await tryOpenCodeText(prompt, jsonSystemInstruction);
+      if (ocResult !== null) {
+        const cleaned = ocResult.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        return JSON.parse(cleaned) as T;
+      }
+    } catch {
+      // Fall through to Gemini
+    }
+  }
+
+  // Gemini fallback
   const resp = await geminiClient.generateContent({
     model: MODEL,
-    systemInstruction:
-      systemInstruction +
-      '\n\n回應必須是有效的 JSON，不要有任何 Markdown 格式（不要 ```json）或額外文字。',
+    systemInstruction: jsonSystemInstruction,
     prompt,
   });
   // Strip markdown fences if model still adds them
@@ -57,12 +76,24 @@ export async function generateJSON<T>(
 }
 
 /**
- * Call Gemini and return plain text response.
+ * Call AI (OpenCode-first, Gemini fallback) and return plain text response.
  */
 export async function generateText(
   prompt: string,
   systemInstruction?: string,
 ): Promise<string> {
+  // Try OpenCode first
+  const servers = getOpenCodeServers();
+  if (servers.length > 0) {
+    try {
+      const ocResult = await tryOpenCodeText(prompt, systemInstruction);
+      if (ocResult !== null) return ocResult;
+    } catch {
+      // Fall through to Gemini
+    }
+  }
+
+  // Gemini fallback
   const resp = await geminiClient.generateContent({
     model: MODEL,
     systemInstruction,
@@ -70,3 +101,6 @@ export async function generateText(
   });
   return resp.text;
 }
+
+// Re-export for use in settings
+export { getOpenCodeServers, getOpenCodeModel };

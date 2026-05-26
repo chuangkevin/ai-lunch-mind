@@ -307,6 +307,128 @@
       margin-top: 8px;
     }
 
+    /* OpenCode settings */
+    .oc-field {
+      margin-bottom: 16px;
+    }
+
+    .oc-field label {
+      display: block;
+      font-size: 0.9em;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+
+    .oc-field textarea,
+    .oc-field select,
+    .oc-field input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      font-size: 14px;
+      background: #374151;
+      color: #f9fafb;
+      outline: none;
+      transition: border-color 0.3s;
+      box-sizing: border-box;
+    }
+
+    .oc-field textarea {
+      min-height: 90px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .oc-field textarea::placeholder,
+    .oc-field input::placeholder {
+      color: #9ca3af;
+    }
+
+    .oc-field textarea:focus,
+    .oc-field select:focus,
+    .oc-field input:focus {
+      border-color: #7c3aed;
+      box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.3);
+    }
+
+    .oc-field select option {
+      background: #1f2937;
+      color: #f9fafb;
+    }
+
+    .oc-status {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.85em;
+      background: rgba(124, 58, 237, 0.1);
+      border: 1px solid rgba(124, 58, 237, 0.25);
+      color: #c4b5fd;
+      display: none;
+    }
+
+    .oc-status.visible {
+      display: block;
+    }
+
+    .oc-status.success {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #6ee7b7;
+    }
+
+    .oc-status.error {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .oc-info-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      font-size: 0.82em;
+      color: #9ca3af;
+    }
+
+    .oc-info-row span {
+      background: #374151;
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+
+    .model-search-wrapper {
+      position: relative;
+    }
+
+    .model-search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #374151;
+      border-radius: 10px 10px 0 0;
+      font-size: 14px;
+      background: #374151;
+      color: #f9fafb;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .model-search-input:focus {
+      border-color: #7c3aed;
+    }
+
+    .model-search-input::placeholder {
+      color: #9ca3af;
+    }
+
+    #ocTextModelSelect {
+      border-radius: 0 0 10px 10px;
+      border-top: none;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -411,6 +533,45 @@
             <div class="label">呼叫次數</div>
             <div class="token-info" id="tokens30d">-- tokens</div>
           </div>
+        </div>
+      </div>
+
+      <!-- OpenCode Settings -->
+      <div class="section">
+        <div class="section-title">⚡ OpenCode 設定（主要 AI Provider）</div>
+
+        <div class="oc-field">
+          <label for="ocServers">OpenCode 伺服器（每行一個 URL）</label>
+          <textarea id="ocServers" placeholder="https://opencode.example.com"></textarea>
+        </div>
+
+        <div class="oc-field">
+          <label for="ocTextModelSearch">文字生成模型</label>
+          <div class="model-search-wrapper">
+            <input
+              type="text"
+              id="ocTextModelSearch"
+              class="model-search-input"
+              placeholder="搜尋模型..."
+              oninput="filterOcModels()"
+            />
+            <select id="ocTextModelSelect" size="6">
+              <option value="" disabled>（先設定伺服器後載入模型）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="import-actions">
+          <button class="btn btn-primary" id="btnOcSave" onclick="saveOcSettings()">儲存設定</button>
+          <button class="btn btn-secondary" id="btnOcRefreshModels" onclick="loadOcModels()">重新載入模型</button>
+          <button class="btn btn-danger" id="btnOcClear" onclick="clearOcSettings()">清除設定</button>
+        </div>
+
+        <div class="oc-status" id="ocStatus"></div>
+
+        <div class="oc-info-row" id="ocInfoRow" style="display:none">
+          <span id="ocServersSource">伺服器來源：—</span>
+          <span id="ocModelSource">模型來源：—</span>
         </div>
       </div>
     </div>
@@ -578,6 +739,7 @@
     window.addEventListener('load', function() {
       refreshKeyStatus();
       refreshUsageStats();
+      loadOcSettings();
 
       // Auto-refresh every 10 seconds
       refreshInterval = setInterval(() => {
@@ -585,6 +747,163 @@
         refreshUsageStats();
       }, 10000);
     });
+
+    // ── OpenCode settings ─────────────────────────────────────────────────────
+
+    let ocAllModels = []; // { id, name, free, provider }
+
+    function showOcStatus(msg, type) {
+      const el = document.getElementById('ocStatus');
+      el.textContent = msg;
+      el.className = `oc-status visible ${type || ''}`;
+      setTimeout(() => { el.className = 'oc-status'; }, 4000);
+    }
+
+    async function loadOcSettings() {
+      try {
+        const res = await fetch('/api/settings/opencode');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('ocServers').value = data.servers || '';
+
+        // Show info row
+        const infoRow = document.getElementById('ocInfoRow');
+        infoRow.style.display = 'flex';
+        document.getElementById('ocServersSource').textContent =
+          '伺服器來源：' + (data.servers_source === 'db' ? 'DB' : '未設定');
+        document.getElementById('ocModelSource').textContent =
+          '模型來源：' + { db: 'DB', env: '環境變數', default: '預設' }[data.text_model_source] || data.text_model_source;
+
+        // Load models and set current model
+        await loadOcModels(data.text_model);
+      } catch (e) {
+        console.error('loadOcSettings error', e);
+      }
+    }
+
+    async function loadOcModels(currentModel) {
+      const select = document.getElementById('ocTextModelSelect');
+      select.innerHTML = '<option value="" disabled>載入中...</option>';
+      ocAllModels = [];
+
+      try {
+        const res = await fetch('/api/settings/opencode/models');
+        if (!res.ok) {
+          select.innerHTML = '<option value="" disabled>無法載入（伺服器未設定或無法連線）</option>';
+          return;
+        }
+        const data = await res.json();
+        const groups = data.groups || [];
+
+        if (groups.length === 0) {
+          select.innerHTML = '<option value="" disabled>無可用模型（請先設定伺服器）</option>';
+          return;
+        }
+
+        // Collect all models
+        for (const g of groups) {
+          for (const m of g.models) {
+            ocAllModels.push({ id: m.id, name: m.name, free: m.free, provider: g.name });
+          }
+        }
+
+        renderOcModelSelect(currentModel);
+      } catch (e) {
+        select.innerHTML = '<option value="" disabled>載入失敗</option>';
+        console.error('loadOcModels error', e);
+      }
+    }
+
+    function renderOcModelSelect(selectedId) {
+      const select = document.getElementById('ocTextModelSelect');
+      const searchVal = (document.getElementById('ocTextModelSearch').value || '').toLowerCase();
+
+      // Group filtered models by provider
+      const byProvider = {};
+      for (const m of ocAllModels) {
+        if (searchVal && !m.id.toLowerCase().includes(searchVal) && !m.name.toLowerCase().includes(searchVal)) continue;
+        if (!byProvider[m.provider]) byProvider[m.provider] = [];
+        byProvider[m.provider].push(m);
+      }
+
+      const keys = Object.keys(byProvider);
+      if (keys.length === 0) {
+        select.innerHTML = '<option value="" disabled>無符合的模型</option>';
+        return;
+      }
+
+      let html = '';
+      for (const provider of keys) {
+        html += `<optgroup label="${provider}">`;
+        for (const m of byProvider[provider]) {
+          const label = m.free ? `★ ${m.name}` : m.name;
+          const sel = selectedId && m.id === selectedId ? ' selected' : '';
+          html += `<option value="${m.id}"${sel}>${label}</option>`;
+        }
+        html += '</optgroup>';
+      }
+
+      select.innerHTML = html;
+
+      // If nothing was selected and we have a currentModel fallback, add it manually
+      if (selectedId && !select.value) {
+        const opt = document.createElement('option');
+        opt.value = selectedId;
+        opt.textContent = selectedId;
+        opt.selected = true;
+        select.insertBefore(opt, select.firstChild);
+      }
+    }
+
+    function filterOcModels() {
+      const select = document.getElementById('ocTextModelSelect');
+      const currentVal = select.value;
+      renderOcModelSelect(currentVal);
+    }
+
+    async function saveOcSettings() {
+      const servers = document.getElementById('ocServers').value.trim();
+      const select = document.getElementById('ocTextModelSelect');
+      const textModel = select.value || '';
+
+      document.getElementById('btnOcSave').disabled = true;
+      try {
+        const res = await fetch('/api/settings/opencode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ servers, text_model: textModel }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '儲存失敗');
+
+        showOcStatus('設定已儲存', 'success');
+        document.getElementById('ocInfoRow').style.display = 'flex';
+        document.getElementById('ocServersSource').textContent =
+          '伺服器來源：' + (data.servers_source === 'db' ? 'DB' : '未設定');
+        document.getElementById('ocModelSource').textContent =
+          '模型來源：' + { db: 'DB', env: '環境變數', default: '預設' }[data.text_model_source] || data.text_model_source;
+      } catch (e) {
+        showOcStatus('儲存失敗：' + e.message, 'error');
+      } finally {
+        document.getElementById('btnOcSave').disabled = false;
+      }
+    }
+
+    async function clearOcSettings() {
+      if (!confirm('確定要清除所有 OpenCode 設定嗎？')) return;
+      try {
+        const res = await fetch('/api/settings/opencode', { method: 'DELETE' });
+        if (!res.ok) throw new Error('清除失敗');
+        document.getElementById('ocServers').value = '';
+        document.getElementById('ocTextModelSelect').innerHTML = '<option value="" disabled>（先設定伺服器後載入模型）</option>';
+        document.getElementById('ocTextModelSearch').value = '';
+        document.getElementById('ocInfoRow').style.display = 'none';
+        showOcStatus('設定已清除', 'success');
+      } catch (e) {
+        showOcStatus('清除失敗：' + e.message, 'error');
+      }
+    }
   </script>
 </body>
 </html>

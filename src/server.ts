@@ -8,6 +8,7 @@ import path from 'path';
 
 import chatRouter from './routes/chat.js';
 import keysRouter from './routes/keys.js';
+import opencodeRouter from './routes/opencode.js';
 import { keyPool } from './lib/gemini.js';
 
 const app = express();
@@ -37,6 +38,7 @@ app.get('/settings', (_req, res) => {
 // ── API routes ───────────────────────────────────────────────────────────────
 app.use('/', chatRouter);
 app.use('/', keysRouter);
+app.use('/', opencodeRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
@@ -50,7 +52,7 @@ app.get('/health', async (_req, res) => {
     res.json({
       status: 'healthy',
       service: 'AI Lunch Mind',
-      version: '6.0.0',
+      version: '6.1.0',
       runtime: 'Node.js/TypeScript',
       cwb_api_key: process.env.CWB_API_KEY ? '已設置' : '未設置',
       gemini_keys: geminiKeys,
